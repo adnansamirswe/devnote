@@ -1,0 +1,17 @@
+{
+  "name": "devnote",
+  "short_name": "devnote",
+  "description": "Minimal developer notepad to track clients, projects, and cloud services.",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#0b0b0d",
+  "theme_color": "#4c3d8f",
+  "icons": [
+    {
+      "src": "/logo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Next.js build & static export
+.next/
+**/.next/
+frontend/out/
+frontend/next-env.d.ts
+
+# Cloudflare Wrangler local state & secrets
+backend/.wrangler/
+backend/.dev.vars
+**/.dev.vars
+
+# Environment files
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.dev.vars.example
+
+# Logs & OS files
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db

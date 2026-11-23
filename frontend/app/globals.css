@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  --font-heading: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-border-strong: var(--border-strong);
+  --color-notes-surface: var(--notes-surface);
+  --color-chip-surface: var(--chip-surface);
+  --color-chip-border: var(--chip-border);
+
+  --radius-sm: calc(var(--radius) * 0.75);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.25);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+
+  --animate-shimmer-slide: shimmer-slide var(--speed) ease-in-out infinite alternate;
+  --animate-spin-around: spin-around calc(var(--speed) * 2) infinite linear;
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+
+  @keyframes shimmer-slide {
+    to {
+      transform: translate(calc(100cqw - 100%), 0);
+    }
+  }
+  @keyframes spin-around {
+    0% { transform: translateZ(0) rotate(0); }
+    15%, 35% { transform: translateZ(0) rotate(90deg); }
+    65%, 85% { transform: translateZ(0) rotate(270deg); }
+    100% { transform: translateZ(0) rotate(360deg); }
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(calc(-100% - var(--gap))); }
+  }
+  @keyframes marquee-vertical {
+    from { transform: translateY(0); }
+    to { transform: translateY(calc(-100% - var(--gap))); }
+  }
+}
+
+:root {
+  /* 3-level surface system (light) */
+  --background: #f6f7f9;
+  --sidebar: #ffffff;
+  --sidebar-border: #e5e7eb;
+  --card: #ffffff;
+  --card-foreground: #111827;
+
+  --foreground: #111827;
+  --popover: #ffffff;
+  --popover-foreground: #111827;
+  --primary: #4c3d8f;
+  --primary-foreground: #ffffff;
+  --secondary: #eceef2;
+  --secondary-foreground: #1f2937;
+  --muted: #eceef2;
+  --muted-foreground: #5f6672;
+  --accent: #efedf8;
+  --accent-foreground: #372a6e;
+  --destructive: #dc2626;
+
+  /* Borders & specialized surfaces */
+  --border: #dfe3ea;
+  --border-strong: #c8ced8;
+  --input: #d5dae3;
+  --ring: #4c3d8f;
+  --notes-surface: #eff1f5;
+  --chip-surface: #eceff6;
+  --chip-border: #d4d9e4;
+  --radius: 0.625rem;
+}
+
+.dark {
+  /* 3-level surface system (dark) */
+  --background: #0b0b0d;
+  --sidebar: #101014;
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --card: #141419;
+  --card-foreground: #f4f4f6;
+
+  --foreground: #f4f4f6;
+  --popover: #16161c;
+  --popover-foreground: #f4f4f6;
+  --primary: #8b5cf6;
+  --primary-foreground: #ffffff;
+  --secondary: #1c1c23;
+  --secondary-foreground: #f4f4f6;
+  --muted: #191920;
+  --muted-foreground: #9ca3af;
+  --accent: #221c35;
+  --accent-foreground: #c4b5fd;
+  --destructive: #f87171;
+
+  /* Borders & specialized surfaces */
+  --border: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --input: rgba(255, 255, 255, 0.14);
+  --ring: #8b5cf6;
+  --notes-surface: #111116;
+  --chip-surface: #1e1e27;
+  --chip-border: rgba(255, 255, 255, 0.14);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    box-sizing: border-box;
+  }
+  html {
+    color-scheme: dark light;
+    scroll-behavior: smooth;
+  }
+  body {
+    @apply bg-background text-foreground antialiased selection:bg-primary/20 selection:text-primary;
+    min-height: 100vh;
+  }
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
