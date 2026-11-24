@@ -33,13 +33,29 @@ import {
   runAiChat,
 } from "./lib/ai";
 import { handleMcpJsonRpc } from "./lib/mcp";
+import {
+  buildNewDeviceLoginEmail,
+  buildPasswordResetEmail,
+  buildSignupVerificationEmail,
+  generateSixDigitCode,
+  maskEmail,
+  sendMail,
+} from "./lib/mailer";
 
 export type Bindings = {
   DB: D1Database;
   AI: Ai;
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
+  BYZO_MAIL_API_URL?: string;
+  BYZO_MAIL_API_KEY?: string;
 };
+
+const DEVICE_COOKIE = "devnote_device";
+const DEVICE_TTL_SEC = 90 * 24 * 60 * 60;
+const OTP_EXPIRY_MS = 15 * 60 * 1000;
+const DEVICE_OTP_EXPIRY_MS = 10 * 60 * 1000;
+const MAX_OTP_ATTEMPTS = 5;
 
 export interface PublicUser {
   id: string;
@@ -187,6 +203,43 @@ const loginSchema = z
   .object({
     identifier: z.string().trim().toLowerCase().min(1, "Email or username is required").max(160),
     password: z.string().min(1, "Password is required").max(128),
+  })
+  .strict();
+
+const verifyEmailSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Valid email is required").max(160),
+    code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+  })
+  .strict();
+
+const resendVerificationSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Valid email is required").max(160),
+  })
+  .strict();
+
+const verifyDeviceSchema = z
+  .object({
+    challengeId: z.string().min(1).max(64),
+    code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+  })
+  .strict();
+
+const forgotPasswordSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Valid email is required").max(160),
+  })
+  .strict();
+
+const resetPasswordSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email("Valid email is required").max(160),
+    code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code"),
+    newPassword: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .max(128, "Password is too long"),
   })
   .strict();
 
@@ -413,6 +466,92 @@ async function authenticateRequest(
   return { user: pubUser, method: "cookie" };
 }
 
+async function isTrustedDevice(
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string
+): Promise<boolean> {
+  const deviceToken = getCookie(c, DEVICE_COOKIE);
+  if (!deviceToken) return false;
+
+  const deviceHash = await sha256Hex(deviceToken);
+  const row = await db
+    .select()
+    .from(schema.trustedDevices)
+    .where(
+      and(
+        eq(schema.trustedDevices.userId, userId),
+        eq(schema.trustedDevices.deviceTokenHash, deviceHash)
+      )
+    )
+    .get();
+
+  if (!row) return false;
+
+  await db
+    .update(schema.trustedDevices)
+    .set({ lastSeenAt: Date.now(), ipAddress: getClientIp(c) })
+    .where(eq(schema.trustedDevices.id, row.id));
+  return true;
+}
+
+async function trustCurrentDevice(
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string
+) {
+  const rawToken = generateOpaqueToken();
+  const tokenHash = await sha256Hex(rawToken);
+  const now = Date.now();
+
+  await db.insert(schema.trustedDevices).values({
+    id: crypto.randomUUID(),
+    userId,
+    deviceTokenHash: tokenHash,
+    userAgent: c.req.header("User-Agent")?.slice(0, 200) || "",
+    ipAddress: getClientIp(c),
+    lastSeenAt: now,
+    createdAt: now,
+  });
+
+  const isDev = isLocalDevUrl(c.req.url);
+  setCookie(c, DEVICE_COOKIE, rawToken, {
+    httpOnly: true,
+    secure: !isDev,
+    sameSite: "Lax",
+    path: "/",
+    maxAge: DEVICE_TTL_SEC,
+  });
+}
+
+async function createAndSendSignupOtp(
+  c: Context<{ Bindings: Bindings; Variables: Variables }>,
+  db: ReturnType<typeof drizzle<typeof schema>>,
+  userId: string,
+  email: string
+) {
+  const now = Date.now();
+  const code = generateSixDigitCode();
+  const tokenHash = await sha256Hex(`verify:${userId}:${code}`);
+
+  await db
+    .delete(schema.verificationTokens)
+    .where(eq(schema.verificationTokens.userId, userId));
+
+  await db.insert(schema.verificationTokens).values({
+    id: crypto.randomUUID(),
+    userId,
+    tokenHash,
+    attempts: 0,
+    expiresAt: now + OTP_EXPIRY_MS,
+    usedAt: null,
+    createdAt: now,
+  });
+
+  const mail = buildSignupVerificationEmail(code);
+  return sendMail(c.env, { to: email, ...mail });
+}
+
 // Public Auth Routes
 app.post("/api/auth/signup", zValidator("json", signupSchema), async (c) => {
   const { email, username, password } = c.req.valid("json");
@@ -468,7 +607,6 @@ app.post("/api/auth/signup", zValidator("json", signupSchema), async (c) => {
 
   await db.insert(schema.users).values(newUser);
 
-  // If the default admin signs up, claim any legacy unowned clients rows
   if (role === "admin") {
     await db
       .update(schema.clients)
@@ -476,32 +614,162 @@ app.post("/api/auth/signup", zValidator("json", signupSchema), async (c) => {
       .where(isNull(schema.clients.userId));
   }
 
-  const refreshToken = generateOpaqueToken();
-  const refreshHash = await sha256Hex(refreshToken);
+  const mailRes = await createAndSendSignupOtp(c, db, userId, email);
+  if (!mailRes.success) {
+    return c.json(
+      {
+        error:
+          "Account created, but we could not send the verification email. Please try resending in a moment.",
+      },
+      502
+    );
+  }
 
-  await db.insert(schema.sessions).values({
-    id: crypto.randomUUID(),
-    userId,
-    refreshTokenHash: refreshHash,
-    expiresAt: now + REFRESH_TTL_SEC * 1000,
-    revokedAt: null,
-    userAgent: c.req.header("User-Agent")?.slice(0, 200) || "",
-    ipAddress: ip,
-    createdAt: now,
-  });
-
-  const pubUser = toPublicUser(newUser as schema.User);
-  await issueAuthCookies(c, pubUser, refreshToken);
-
-  return c.json({ ok: true, user: pubUser }, 201);
+  return c.json(
+    {
+      ok: true,
+      requiresVerification: true,
+      email,
+    },
+    201
+  );
 });
+
+app.post(
+  "/api/auth/verify-email",
+  zValidator("json", verifyEmailSchema),
+  async (c) => {
+    const { email, code } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+    const ip = getClientIp(c);
+
+    const rl = await checkRateLimit(db, `verify:ip:${ip}`, 15, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json({ error: "Too many attempts. Please wait a few minutes." }, 429);
+    }
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (!userRow || userRow.status !== "active") {
+      return c.json({ error: "Invalid or expired verification code." }, 400);
+    }
+
+    const tokenRow = await db
+      .select()
+      .from(schema.verificationTokens)
+      .where(
+        and(
+          eq(schema.verificationTokens.userId, userRow.id),
+          isNull(schema.verificationTokens.usedAt)
+        )
+      )
+      .orderBy(desc(schema.verificationTokens.createdAt))
+      .get();
+
+    const now = Date.now();
+    if (!tokenRow || tokenRow.expiresAt <= now) {
+      return c.json({ error: "Verification code expired. Request a new code." }, 400);
+    }
+
+    if (tokenRow.attempts >= MAX_OTP_ATTEMPTS) {
+      return c.json(
+        { error: "Too many incorrect codes. Please request a new code." },
+        429
+      );
+    }
+
+    const expectedHash = await sha256Hex(`verify:${userRow.id}:${code}`);
+    if (expectedHash !== tokenRow.tokenHash) {
+      await db
+        .update(schema.verificationTokens)
+        .set({ attempts: tokenRow.attempts + 1 })
+        .where(eq(schema.verificationTokens.id, tokenRow.id));
+      return c.json({ error: "Invalid verification code." }, 400);
+    }
+
+    await db
+      .update(schema.verificationTokens)
+      .set({ usedAt: now })
+      .where(eq(schema.verificationTokens.id, tokenRow.id));
+
+    await db
+      .update(schema.users)
+      .set({ emailVerified: 1, updatedAt: now })
+      .where(eq(schema.users.id, userRow.id));
+
+    userRow.emailVerified = 1;
+
+    // Trust this device and issue session cookies
+    await trustCurrentDevice(c, db, userRow.id);
+
+    const refreshToken = generateOpaqueToken();
+    const refreshHash = await sha256Hex(refreshToken);
+
+    await db.insert(schema.sessions).values({
+      id: crypto.randomUUID(),
+      userId: userRow.id,
+      refreshTokenHash: refreshHash,
+      expiresAt: now + REFRESH_TTL_SEC * 1000,
+      revokedAt: null,
+      userAgent: c.req.header("User-Agent")?.slice(0, 200) || "",
+      ipAddress: ip,
+      createdAt: now,
+    });
+
+    const pubUser = toPublicUser(userRow);
+    await issueAuthCookies(c, pubUser, refreshToken);
+
+    return c.json({ ok: true, user: pubUser });
+  }
+);
+
+app.post(
+  "/api/auth/resend-verification",
+  zValidator("json", resendVerificationSchema),
+  async (c) => {
+    const { email } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+    const ip = getClientIp(c);
+
+    const rl = await checkRateLimit(
+      db,
+      `resend:${ip}:${email}`,
+      3,
+      15 * 60 * 1000
+    );
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json(
+        { error: "Please wait a few minutes before requesting another code." },
+        429
+      );
+    }
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (userRow && userRow.status === "active" && userRow.emailVerified === 0) {
+      await createAndSendSignupOtp(c, db, userRow.id, userRow.email);
+    }
+
+    // Uniform response to avoid account enumeration
+    return c.json({ ok: true });
+  }
+);
 
 app.post("/api/auth/login", zValidator("json", loginSchema), async (c) => {
   const { identifier, password } = c.req.valid("json");
   const db = drizzle(c.env.DB, { schema });
   const ip = getClientIp(c);
 
-  // Rate limit: 10 attempts / 15 min per IP and per identifier
   const ipLimit = await checkRateLimit(db, `login:ip:${ip}`, 10, 15 * 60 * 1000);
   if (!ipLimit.allowed) {
     c.header("Retry-After", String(ipLimit.retryAfterSec));
@@ -534,7 +802,6 @@ app.post("/api/auth/login", zValidator("json", loginSchema), async (c) => {
   const now = Date.now();
 
   if (!userRow) {
-    // Timing equalization
     await verifyPassword(password, DUMMY_BCRYPT_HASH);
     return c.json({ error: "Invalid email, username, or password" }, 401);
   }
@@ -567,7 +834,6 @@ app.post("/api/auth/login", zValidator("json", loginSchema), async (c) => {
     return c.json({ error: "Invalid email, username, or password" }, 401);
   }
 
-  // Ensure default admin email always has admin role
   const resolvedRole =
     userRow.email === DEFAULT_ADMIN_EMAIL ? "admin" : userRow.role;
 
@@ -583,6 +849,54 @@ app.post("/api/auth/login", zValidator("json", loginSchema), async (c) => {
 
   userRow.role = resolvedRole;
 
+  // 1. Require email verification if unverified
+  if (userRow.emailVerified === 0) {
+    await createAndSendSignupOtp(c, db, userRow.id, userRow.email);
+    return c.json({
+      ok: true,
+      requiresVerification: true,
+      email: userRow.email,
+    });
+  }
+
+  // 2. Check trusted device cookie; if unrecognized, send 6-digit new-device code
+  const trusted = await isTrustedDevice(c, db, userRow.id);
+  if (!trusted) {
+    const code = generateSixDigitCode();
+    const challengeId = crypto.randomUUID();
+    const codeHash = await sha256Hex(`device:${challengeId}:${code}`);
+
+    await db.insert(schema.loginChallenges).values({
+      id: challengeId,
+      userId: userRow.id,
+      codeHash,
+      attempts: 0,
+      expiresAt: now + DEVICE_OTP_EXPIRY_MS,
+      usedAt: null,
+      createdAt: now,
+    });
+
+    const mail = buildNewDeviceLoginEmail(code, {
+      ip,
+      userAgent: c.req.header("User-Agent") || "",
+    });
+    const mailRes = await sendMail(c.env, { to: userRow.email, ...mail });
+    if (!mailRes.success) {
+      return c.json(
+        { error: "Unable to send new-device verification email. Please try again." },
+        502
+      );
+    }
+
+    return c.json({
+      ok: true,
+      requiresDeviceVerification: true,
+      challengeId,
+      maskedEmail: maskEmail(userRow.email),
+    });
+  }
+
+  // 3. Trusted device — issue session cookies immediately
   const refreshToken = generateOpaqueToken();
   const refreshHash = await sha256Hex(refreshToken);
 
@@ -602,6 +916,231 @@ app.post("/api/auth/login", zValidator("json", loginSchema), async (c) => {
 
   return c.json({ ok: true, user: pubUser });
 });
+
+app.post(
+  "/api/auth/verify-device",
+  zValidator("json", verifyDeviceSchema),
+  async (c) => {
+    const { challengeId, code } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+    const ip = getClientIp(c);
+
+    const rl = await checkRateLimit(
+      db,
+      `verify-device:ip:${ip}`,
+      15,
+      15 * 60 * 1000
+    );
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json({ error: "Too many attempts. Please try again later." }, 429);
+    }
+
+    const challenge = await db
+      .select()
+      .from(schema.loginChallenges)
+      .where(
+        and(
+          eq(schema.loginChallenges.id, challengeId),
+          isNull(schema.loginChallenges.usedAt)
+        )
+      )
+      .get();
+
+    const now = Date.now();
+    if (!challenge || challenge.expiresAt <= now) {
+      return c.json({ error: "Sign-in code expired. Please sign in again." }, 400);
+    }
+
+    if (challenge.attempts >= MAX_OTP_ATTEMPTS) {
+      return c.json(
+        { error: "Too many incorrect attempts. Please sign in again." },
+        429
+      );
+    }
+
+    const expectedHash = await sha256Hex(`device:${challengeId}:${code}`);
+    if (expectedHash !== challenge.codeHash) {
+      await db
+        .update(schema.loginChallenges)
+        .set({ attempts: challenge.attempts + 1 })
+        .where(eq(schema.loginChallenges.id, challengeId));
+      return c.json({ error: "Invalid verification code." }, 400);
+    }
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, challenge.userId))
+      .get();
+
+    if (!userRow || userRow.status !== "active") {
+      return c.json({ error: "Account unavailable." }, 403);
+    }
+
+    await db
+      .update(schema.loginChallenges)
+      .set({ usedAt: now })
+      .where(eq(schema.loginChallenges.id, challengeId));
+
+    await trustCurrentDevice(c, db, userRow.id);
+
+    const refreshToken = generateOpaqueToken();
+    const refreshHash = await sha256Hex(refreshToken);
+
+    await db.insert(schema.sessions).values({
+      id: crypto.randomUUID(),
+      userId: userRow.id,
+      refreshTokenHash: refreshHash,
+      expiresAt: now + REFRESH_TTL_SEC * 1000,
+      revokedAt: null,
+      userAgent: c.req.header("User-Agent")?.slice(0, 200) || "",
+      ipAddress: ip,
+      createdAt: now,
+    });
+
+    const pubUser = toPublicUser(userRow);
+    await issueAuthCookies(c, pubUser, refreshToken);
+
+    return c.json({ ok: true, user: pubUser });
+  }
+);
+
+app.post(
+  "/api/auth/forgot-password",
+  zValidator("json", forgotPasswordSchema),
+  async (c) => {
+    const { email } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+    const ip = getClientIp(c);
+
+    const rl = await checkRateLimit(db, `forgot:ip:${ip}`, 5, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json(
+        { error: "Too many reset requests. Please try again later." },
+        429
+      );
+    }
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (userRow && userRow.status === "active") {
+      const now = Date.now();
+      const code = generateSixDigitCode();
+      const tokenHash = await sha256Hex(`reset:${userRow.id}:${code}`);
+
+      await db
+        .delete(schema.passwordResetTokens)
+        .where(eq(schema.passwordResetTokens.userId, userRow.id));
+
+      await db.insert(schema.passwordResetTokens).values({
+        id: crypto.randomUUID(),
+        userId: userRow.id,
+        tokenHash,
+        attempts: 0,
+        expiresAt: now + OTP_EXPIRY_MS,
+        usedAt: null,
+        createdAt: now,
+      });
+
+      const mail = buildPasswordResetEmail(code);
+      await sendMail(c.env, { to: userRow.email, ...mail });
+    }
+
+    // Always return 200 to prevent account enumeration
+    return c.json({ ok: true });
+  }
+);
+
+app.post(
+  "/api/auth/reset-password",
+  zValidator("json", resetPasswordSchema),
+  async (c) => {
+    const { email, code, newPassword } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+    const ip = getClientIp(c);
+
+    const rl = await checkRateLimit(db, `reset:ip:${ip}`, 10, 15 * 60 * 1000);
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json({ error: "Too many attempts. Please wait a few minutes." }, 429);
+    }
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.email, email))
+      .get();
+
+    if (!userRow || userRow.status !== "active") {
+      return c.json({ error: "Invalid or expired reset code." }, 400);
+    }
+
+    const tokenRow = await db
+      .select()
+      .from(schema.passwordResetTokens)
+      .where(
+        and(
+          eq(schema.passwordResetTokens.userId, userRow.id),
+          isNull(schema.passwordResetTokens.usedAt)
+        )
+      )
+      .orderBy(desc(schema.passwordResetTokens.createdAt))
+      .get();
+
+    const now = Date.now();
+    if (!tokenRow || tokenRow.expiresAt <= now) {
+      return c.json({ error: "Reset code expired. Request a new code." }, 400);
+    }
+
+    if (tokenRow.attempts >= MAX_OTP_ATTEMPTS) {
+      return c.json(
+        { error: "Too many incorrect codes. Please request a new reset code." },
+        429
+      );
+    }
+
+    const expectedHash = await sha256Hex(`reset:${userRow.id}:${code}`);
+    if (expectedHash !== tokenRow.tokenHash) {
+      await db
+        .update(schema.passwordResetTokens)
+        .set({ attempts: tokenRow.attempts + 1 })
+        .where(eq(schema.passwordResetTokens.id, tokenRow.id));
+      return c.json({ error: "Invalid reset code." }, 400);
+    }
+
+    const newHash = await hashPassword(newPassword);
+
+    await db
+      .update(schema.passwordResetTokens)
+      .set({ usedAt: now })
+      .where(eq(schema.passwordResetTokens.id, tokenRow.id));
+
+    await db
+      .update(schema.users)
+      .set({
+        passwordHash: newHash,
+        emailVerified: 1,
+        failedLoginAttempts: 0,
+        lockedUntil: null,
+        updatedAt: now,
+      })
+      .where(eq(schema.users.id, userRow.id));
+
+    // Revoke all existing sessions on password reset
+    await db
+      .update(schema.sessions)
+      .set({ revokedAt: now })
+      .where(eq(schema.sessions.userId, userRow.id));
+
+    return c.json({ ok: true });
+  }
+);
 
 app.post("/api/auth/refresh", async (c) => {
   const db = drizzle(c.env.DB, { schema });
@@ -638,6 +1177,11 @@ app.post("/api/auth/logout", async (c) => {
 const PUBLIC_PATHS = new Set([
   "/api/auth/login",
   "/api/auth/signup",
+  "/api/auth/verify-email",
+  "/api/auth/resend-verification",
+  "/api/auth/verify-device",
+  "/api/auth/forgot-password",
+  "/api/auth/reset-password",
   "/api/auth/refresh",
   "/api/auth/logout",
 ]);

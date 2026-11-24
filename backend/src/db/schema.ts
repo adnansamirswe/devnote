@@ -34,13 +34,14 @@ export const rateLimits = sqliteTable("rate_limits", {
   blockedUntil: integer("blocked_until"),
 });
 
-// Ready for future SMTP email verification & forgot-password flows
+// Email verification & forgot-password OTP tokens
 export const verificationTokens = sqliteTable("verification_tokens", {
   id: text("id").primaryKey(),
   userId: text("user_id")
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull().unique(),
+  attempts: integer("attempts").notNull().default(0),
   expiresAt: integer("expires_at").notNull(),
   usedAt: integer("used_at"),
   createdAt: integer("created_at").notNull(),
@@ -52,6 +53,31 @@ export const passwordResetTokens = sqliteTable("password_reset_tokens", {
     .notNull()
     .references(() => users.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull().unique(),
+  attempts: integer("attempts").notNull().default(0),
+  expiresAt: integer("expires_at").notNull(),
+  usedAt: integer("used_at"),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const trustedDevices = sqliteTable("trusted_devices", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  deviceTokenHash: text("device_token_hash").notNull().unique(),
+  userAgent: text("user_agent").notNull().default(""),
+  ipAddress: text("ip_address").notNull().default(""),
+  lastSeenAt: integer("last_seen_at").notNull(),
+  createdAt: integer("created_at").notNull(),
+});
+
+export const loginChallenges = sqliteTable("login_challenges", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  codeHash: text("code_hash").notNull(),
+  attempts: integer("attempts").notNull().default(0),
   expiresAt: integer("expires_at").notNull(),
   usedAt: integer("used_at"),
   createdAt: integer("created_at").notNull(),

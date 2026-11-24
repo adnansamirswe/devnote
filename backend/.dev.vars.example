@@ -1,2 +1,4 @@
 # Local development environment variables for Cloudflare Worker
 JWT_SECRET=devnote-jwt-development-secret-key-32chars
+BYZO_MAIL_API_URL=https://byzo-mail.gudg.workers.dev
+BYZO_MAIL_API_KEY=your-byzo-mail-api-key

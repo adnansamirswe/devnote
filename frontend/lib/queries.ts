@@ -29,8 +29,10 @@ export function useAuth() {
     mutationFn: (data: { identifier: string; password: string }) =>
       api.login(data),
     onSuccess: (res) => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
-      queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+      if (res.user) {
+        queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
+        queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+      }
     },
   });
 
@@ -38,10 +40,17 @@ export function useAuth() {
     mutationFn: (data: { email: string; username: string; password: string }) =>
       api.signup(data),
     onSuccess: (res) => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
-      queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+      if (res.user) {
+        queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
+        queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+      }
     },
   });
+
+  const completeAuthUser = (user: UserProfile) => {
+    queryClient.setQueryData(AUTH_QUERY_KEY, user);
+    queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+  };
 
   const logoutMutation = useMutation({
     mutationFn: () => api.logout(),
@@ -58,6 +67,7 @@ export function useAuth() {
     isLoading: authQuery.isLoading,
     login: loginMutation.mutateAsync,
     signup: signupMutation.mutateAsync,
+    completeAuthUser,
     isLoggingIn: loginMutation.isPending,
     isSigningUp: signupMutation.isPending,
     logout: logoutMutation.mutateAsync,

@@ -159,6 +159,12 @@ export default function LandingPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <Link
+              href="/mcp/"
+              className="text-xs text-muted-foreground hover:text-foreground hidden sm:inline-flex items-center transition-colors"
+            >
+              MCP Docs
+            </Link>
             <a
               href="https://github.com/adnansamirswe/devnote"
               target="_blank"
@@ -751,8 +757,8 @@ export default function LandingPage() {
             }
             Icon={KeyRound}
             description="Connect Antigravity, Cursor, Claude Code, or VS Code to read and update your clients, projects, and services using revocable personal API keys."
-            href="/app"
-            cta="Get MCP config"
+            href="/mcp/"
+            cta="Open MCP docs"
           />
 
           <BentoCard
