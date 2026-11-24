@@ -74,3 +74,66 @@ export interface ExportData {
   exportedAt: string;
   clients: ClientWithProjects[];
 }
+
+export type AiAction =
+  | { type: "create_client"; tempId?: string; name: string; notes?: string }
+  | {
+      type: "update_client";
+      clientId: string;
+      clientName?: string;
+      name?: string;
+      notes?: string;
+    }
+  | { type: "delete_client"; clientId: string; clientName?: string }
+  | {
+      type: "create_project";
+      tempId?: string;
+      clientId: string;
+      clientName?: string;
+      name: string;
+      details?: string;
+    }
+  | {
+      type: "update_project";
+      projectId: string;
+      projectName?: string;
+      name?: string;
+      details?: string;
+    }
+  | { type: "delete_project"; projectId: string; projectName?: string }
+  | {
+      type: "create_service";
+      projectId: string;
+      projectName?: string;
+      name: string;
+      description?: string;
+    }
+  | {
+      type: "update_service";
+      serviceId: string;
+      serviceName?: string;
+      name?: string;
+      description?: string;
+    }
+  | { type: "delete_service"; serviceId: string; serviceName?: string };
+
+export interface AiChatResponse {
+  reply: string;
+  proposedActions: AiAction[];
+}
+
+export interface AiExecuteResponse {
+  ok: boolean;
+  appliedCount: number;
+  results: string[];
+  focusClientId?: string;
+  focusProjectId?: string;
+}
+
+export interface ApiKeyItem {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  lastUsedAt: number | null;
+  createdAt: number;
+}

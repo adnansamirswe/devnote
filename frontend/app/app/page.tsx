@@ -16,6 +16,8 @@ import { ClientWithProjects, ProjectWithServices, Service } from "@/types";
 import { SidebarTree } from "@/components/sidebar-tree";
 import { ClientOverview } from "@/components/client-overview";
 import { ProjectView } from "@/components/project-view";
+import { AiAssistant } from "@/components/ai-assistant";
+import { McpKeysDialog } from "@/components/mcp-keys-dialog";
 import { CommandPalette } from "@/components/command-palette";
 import { ShortcutsDialog } from "@/components/shortcuts-dialog";
 import { LoginView } from "@/components/login-view";
@@ -33,7 +35,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { Layers, Loader2, Menu, Plus, Search } from "lucide-react";
+import { Layers, Loader2, Menu, MessageSquare, Plus, Search } from "lucide-react";
 
 export default function AppPage() {
   return (
@@ -66,12 +68,14 @@ function DashboardWorkstation() {
   const selectedClientId = searchParams.get("c") || "";
   const selectedProjectId = searchParams.get("p") || "";
 
-  // Mobile Vaul Drawer
+  // Mobile Vaul Drawer & AI Assistant Panel
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
 
   // Dialogs
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [mcpKeysOpen, setMcpKeysOpen] = useState(false);
 
   const [newClientOpen, setNewClientOpen] = useState(false);
   const [newClientName, setNewClientName] = useState("");
@@ -322,9 +326,18 @@ function DashboardWorkstation() {
         onNavigate?.();
         setCommandPaletteOpen(true);
       }}
+      onToggleAssistant={() => {
+        onNavigate?.();
+        setAssistantOpen((prev) => !prev);
+      }}
+      assistantOpen={assistantOpen}
       onOpenShortcuts={() => {
         onNavigate?.();
         setShortcutsOpen(true);
+      }}
+      onOpenMcpKeys={() => {
+        onNavigate?.();
+        setMcpKeysOpen(true);
       }}
       onExport={handleExport}
       onTriggerImport={() => importFileRef.current?.click()}
@@ -350,14 +363,24 @@ function DashboardWorkstation() {
           {currentProject?.name || currentClient?.name || "devnote"}
         </span>
 
-        <button
-          type="button"
-          onClick={() => setCommandPaletteOpen(true)}
-          aria-label="Search"
-          className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
-        >
-          <Search className="h-4 w-4" />
-        </button>
+        <div className="flex items-center">
+          <button
+            type="button"
+            onClick={() => setAssistantOpen(true)}
+            aria-label="Open AI assistant"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-primary hover:bg-secondary transition-colors"
+          >
+            <MessageSquare className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => setCommandPaletteOpen(true)}
+            aria-label="Search"
+            className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {/* Mobile Vaul Slide-In Sidebar Drawer */}
@@ -468,6 +491,18 @@ function DashboardWorkstation() {
           </div>
         )}
       </main>
+
+      {/* AI Assistant Slide-Over Panel / Mobile Drawer */}
+      <AiAssistant
+        open={assistantOpen}
+        onOpenChange={setAssistantOpen}
+        activeClientId={selectedClientId}
+        activeProjectId={selectedProjectId}
+        onFocusItem={(cId, pId) => {
+          if (cId && pId) selectProject(cId, pId);
+          else if (cId) selectClient(cId);
+        }}
+      />
 
       {/* Hidden Import File Input */}
       <input
@@ -754,6 +789,9 @@ function DashboardWorkstation() {
 
       {/* Keyboard Shortcuts Dialog */}
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
+
+      {/* Personal API Keys & MCP Config Dialog */}
+      <McpKeysDialog open={mcpKeysOpen} onOpenChange={setMcpKeysOpen} />
     </div>
   );
 }

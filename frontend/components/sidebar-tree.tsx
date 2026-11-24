@@ -18,7 +18,9 @@ import {
   Command,
   Download,
   HelpCircle,
+  KeyRound,
   LogOut,
+  MessageSquare,
   Moon,
   MoreHorizontal,
   Plus,
@@ -43,7 +45,10 @@ interface SidebarTreeProps {
   onDeleteClient: (client: ClientWithProjects) => void;
   onDeleteProject: (project: ProjectWithServices) => void;
   onOpenCommandPalette: () => void;
+  onToggleAssistant: () => void;
+  assistantOpen: boolean;
   onOpenShortcuts: () => void;
+  onOpenMcpKeys: () => void;
   onExport: () => void;
   onTriggerImport: () => void;
   onLogout: () => void;
@@ -63,7 +68,10 @@ export function SidebarTree({
   onDeleteClient,
   onDeleteProject,
   onOpenCommandPalette,
+  onToggleAssistant,
+  assistantOpen,
   onOpenShortcuts,
+  onOpenMcpKeys,
   onExport,
   onTriggerImport,
   onLogout,
@@ -344,6 +352,13 @@ export function SidebarTree({
                 <DropdownMenuSeparator />
               </>
             )}
+            <DropdownMenuItem
+              onClick={onOpenMcpKeys}
+              className="gap-2 text-[13px]"
+            >
+              <KeyRound className="h-3.5 w-3.5" /> API Keys & MCP
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onExport} className="gap-2 text-[13px]">
               <Download className="h-3.5 w-3.5" /> Export backup (JSON)
             </DropdownMenuItem>

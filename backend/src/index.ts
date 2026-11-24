@@ -26,8 +26,17 @@ import {
   verifyPassword,
 } from "./lib/security";
 
+import {
+  aiChatRequestSchema,
+  aiExecuteRequestSchema,
+  executeAiActions,
+  runAiChat,
+} from "./lib/ai";
+import { handleMcpJsonRpc } from "./lib/mcp";
+
 export type Bindings = {
   DB: D1Database;
+  AI: Ai;
   JWT_SECRET?: string;
   ENVIRONMENT?: string;
 };
@@ -44,6 +53,7 @@ export interface PublicUser {
 
 type Variables = {
   user: PublicUser;
+  authMethod: "cookie" | "api_key";
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
@@ -142,9 +152,11 @@ app.use(
   })
 );
 
-// 3. CSRF Origin check on state-changing API requests
+// 3. CSRF Origin check on state-changing cookie-authenticated API requests
 app.use("/api/*", async (c, next) => {
-  if (!isValidCsrfOrigin(c)) {
+  const authHeader = c.req.header("Authorization") || "";
+  const isBearer = authHeader.startsWith("Bearer dn_live_");
+  if (!isBearer && !isValidCsrfOrigin(c)) {
     return c.json({ error: "Forbidden origin" }, 403);
   }
   await next();
@@ -229,6 +241,12 @@ const adminUpdateUserSchema = z
   })
   .strict();
 
+const apiKeyCreateSchema = z
+  .object({
+    name: z.string().trim().min(1, "Key name is required").max(60),
+  })
+  .strict();
+
 const importSchema = z
   .object({
     clients: z.array(
@@ -263,11 +281,44 @@ const importSchema = z
   })
   .strict();
 
-// Helper to resolve current user from access token or rotate via refresh token
+// Helper to resolve current user from Bearer API key, access token, or refresh token
 async function authenticateRequest(
   c: Context<{ Bindings: Bindings; Variables: Variables }>
-): Promise<PublicUser | null> {
+): Promise<{ user: PublicUser; method: "cookie" | "api_key" } | null> {
   const db = drizzle(c.env.DB, { schema });
+
+  // 1. Check Personal API Key in Authorization: Bearer dn_live_...
+  const authHeader = c.req.header("Authorization") || "";
+  if (authHeader.startsWith("Bearer dn_live_")) {
+    const rawKey = authHeader.slice("Bearer ".length).trim();
+    if (!rawKey) return null;
+
+    const keyHash = await sha256Hex(rawKey);
+    const keyRow = await db
+      .select()
+      .from(schema.apiKeys)
+      .where(and(eq(schema.apiKeys.keyHash, keyHash), isNull(schema.apiKeys.revokedAt)))
+      .get();
+
+    if (!keyRow) return null;
+
+    const userRow = await db
+      .select()
+      .from(schema.users)
+      .where(eq(schema.users.id, keyRow.userId))
+      .get();
+
+    if (!userRow || userRow.status !== "active") return null;
+
+    await db
+      .update(schema.apiKeys)
+      .set({ lastUsedAt: Date.now() })
+      .where(eq(schema.apiKeys.id, keyRow.id));
+
+    return { user: toPublicUser(userRow), method: "api_key" };
+  }
+
+  // 2. Check JWT access cookie
   const accessToken = getCookie(c, ACCESS_COOKIE);
 
   if (accessToken) {
@@ -281,7 +332,6 @@ async function authenticateRequest(
           .where(eq(schema.users.id, userId))
           .get();
         if (userRow && userRow.status === "active") {
-          // Ensure default admin email always retains admin role
           if (
             userRow.email === DEFAULT_ADMIN_EMAIL &&
             userRow.role !== "admin"
@@ -292,7 +342,7 @@ async function authenticateRequest(
               .where(eq(schema.users.id, userRow.id));
             userRow.role = "admin";
           }
-          return toPublicUser(userRow);
+          return { user: toPublicUser(userRow), method: "cookie" };
         }
       }
     } catch {
@@ -300,7 +350,7 @@ async function authenticateRequest(
     }
   }
 
-  // Try silent rotation with refresh cookie
+  // 3. Try silent rotation with refresh cookie
   const refreshToken = getCookie(c, REFRESH_COOKIE);
   if (!refreshToken) return null;
 
@@ -315,7 +365,6 @@ async function authenticateRequest(
 
   const now = Date.now();
   if (sessionRow.revokedAt) {
-    // Reuse of a revoked token: revoke all sessions for this user
     await db
       .update(schema.sessions)
       .set({ revokedAt: now })
@@ -340,7 +389,6 @@ async function authenticateRequest(
     return null;
   }
 
-  // Rotate refresh token
   const newRefresh = generateOpaqueToken();
   const newRefreshHash = await sha256Hex(newRefresh);
 
@@ -362,7 +410,7 @@ async function authenticateRequest(
 
   const pubUser = toPublicUser(userRow);
   await issueAuthCookies(c, pubUser, newRefresh);
-  return pubUser;
+  return { user: pubUser, method: "cookie" };
 }
 
 // Public Auth Routes
@@ -565,11 +613,11 @@ app.post("/api/auth/refresh", async (c) => {
     return c.json({ error: "Too many requests" }, 429);
   }
 
-  const user = await authenticateRequest(c);
-  if (!user) {
+  const authResult = await authenticateRequest(c);
+  if (!authResult) {
     return c.json({ error: "Unauthorized" }, 401);
   }
-  return c.json({ ok: true, user });
+  return c.json({ ok: true, user: authResult.user });
 });
 
 app.post("/api/auth/logout", async (c) => {
@@ -599,12 +647,13 @@ app.use("/api/*", async (c, next) => {
     return next();
   }
 
-  const user = await authenticateRequest(c);
-  if (!user) {
+  const authResult = await authenticateRequest(c);
+  if (!authResult) {
     return c.json({ error: "Unauthorized" }, 401);
   }
 
-  c.set("user", user);
+  c.set("user", authResult.user);
+  c.set("authMethod", authResult.method);
   await next();
 });
 
@@ -1050,10 +1099,211 @@ app.post("/api/import", zValidator("json", importSchema), async (c) => {
   return c.json({ ok: true, count: importedClients.length });
 });
 
+// ================= AI ASSISTANT API (/api/ai/*) =================
+app.post("/api/ai/chat", zValidator("json", aiChatRequestSchema), async (c) => {
+  const user = c.get("user");
+  const { messages, activeClientId, activeProjectId } = c.req.valid("json");
+  const db = drizzle(c.env.DB, { schema });
+
+  // Rate limit: 30 AI requests / 15 min per user
+  const rl = await checkRateLimit(db, `ai:user:${user.id}`, 30, 15 * 60 * 1000);
+  if (!rl.allowed) {
+    c.header("Retry-After", String(rl.retryAfterSec));
+    return c.json(
+      { error: "AI rate limit reached. Please wait a few minutes." },
+      429
+    );
+  }
+
+  if (!c.env.AI) {
+    return c.json(
+      { error: "Cloudflare Workers AI binding is not configured." },
+      503
+    );
+  }
+
+  try {
+    const tree = await getUserTree(db, user.id);
+    const response = await runAiChat(
+      c.env.AI,
+      tree,
+      messages,
+      activeClientId,
+      activeProjectId
+    );
+    return c.json(response);
+  } catch (err) {
+    console.error("AI chat error:", err);
+    return c.json(
+      { error: "Assistant failed to respond. Please try again." },
+      502
+    );
+  }
+});
+
+app.post(
+  "/api/ai/execute",
+  zValidator("json", aiExecuteRequestSchema),
+  async (c) => {
+    const user = c.get("user");
+    const { actions } = c.req.valid("json");
+    const db = drizzle(c.env.DB, { schema });
+
+    const rl = await checkRateLimit(
+      db,
+      `ai-exec:user:${user.id}`,
+      30,
+      15 * 60 * 1000
+    );
+    if (!rl.allowed) {
+      c.header("Retry-After", String(rl.retryAfterSec));
+      return c.json({ error: "Too many requests. Please wait a moment." }, 429);
+    }
+
+    try {
+      const outcome = await executeAiActions(db, user.id, actions);
+      return c.json({ ok: true, ...outcome });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Failed to apply changes";
+      return c.json({ error: message }, 400);
+    }
+  }
+);
+
+// ================= PERSONAL API KEYS & MCP (/api/keys, /api/mcp) =================
+app.get("/api/keys", async (c) => {
+  if (c.get("authMethod") !== "cookie") {
+    return c.json({ error: "Browser session required to manage API keys" }, 403);
+  }
+  const user = c.get("user");
+  const db = drizzle(c.env.DB, { schema });
+
+  const keys = await db
+    .select({
+      id: schema.apiKeys.id,
+      name: schema.apiKeys.name,
+      keyPrefix: schema.apiKeys.keyPrefix,
+      lastUsedAt: schema.apiKeys.lastUsedAt,
+      createdAt: schema.apiKeys.createdAt,
+    })
+    .from(schema.apiKeys)
+    .where(and(eq(schema.apiKeys.userId, user.id), isNull(schema.apiKeys.revokedAt)))
+    .orderBy(desc(schema.apiKeys.createdAt));
+
+  return c.json({ keys });
+});
+
+app.post("/api/keys", zValidator("json", apiKeyCreateSchema), async (c) => {
+  if (c.get("authMethod") !== "cookie") {
+    return c.json({ error: "Browser session required to create API keys" }, 403);
+  }
+  const user = c.get("user");
+  const { name } = c.req.valid("json");
+  const db = drizzle(c.env.DB, { schema });
+
+  const rl = await checkRateLimit(db, `keys:user:${user.id}`, 15, 60 * 60 * 1000);
+  if (!rl.allowed) {
+    c.header("Retry-After", String(rl.retryAfterSec));
+    return c.json({ error: "Too many keys created. Try again later." }, 429);
+  }
+
+  const rawSecret = `dn_live_${generateOpaqueToken().slice(0, 40)}`;
+  const keyPrefix = rawSecret.slice(0, 14);
+  const keyHash = await sha256Hex(rawSecret);
+  const now = Date.now();
+  const id = crypto.randomUUID();
+
+  await db.insert(schema.apiKeys).values({
+    id,
+    userId: user.id,
+    name,
+    keyPrefix,
+    keyHash,
+    lastUsedAt: null,
+    revokedAt: null,
+    createdAt: now,
+  });
+
+  return c.json(
+    {
+      key: {
+        id,
+        name,
+        keyPrefix,
+        lastUsedAt: null,
+        createdAt: now,
+      },
+      rawKey: rawSecret,
+    },
+    201
+  );
+});
+
+app.delete("/api/keys/:id", async (c) => {
+  if (c.get("authMethod") !== "cookie") {
+    return c.json({ error: "Browser session required to revoke API keys" }, 403);
+  }
+  const user = c.get("user");
+  const id = c.req.param("id");
+  const db = drizzle(c.env.DB, { schema });
+
+  await db
+    .update(schema.apiKeys)
+    .set({ revokedAt: Date.now() })
+    .where(and(eq(schema.apiKeys.id, id), eq(schema.apiKeys.userId, user.id)));
+
+  return c.json({ ok: true });
+});
+
+// Remote Streamable HTTP MCP Endpoint (JSON-RPC 2.0)
+app.post("/api/mcp", async (c) => {
+  const user = c.get("user");
+  const db = drizzle(c.env.DB, { schema });
+
+  const rl = await checkRateLimit(db, `mcp:user:${user.id}`, 120, 15 * 60 * 1000);
+  if (!rl.allowed) {
+    c.header("Retry-After", String(rl.retryAfterSec));
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32000, message: "Rate limit exceeded" },
+      },
+      429
+    );
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        id: null,
+        error: { code: -32700, message: "Parse error" },
+      },
+      400
+    );
+  }
+
+  const response = await handleMcpJsonRpc(db, user.id, body);
+  if (response === null) {
+    return c.body(null, 202);
+  }
+  return c.json(response);
+});
+
 // ================= ADMIN API (/api/admin/*) =================
 app.use("/api/admin/*", async (c, next) => {
   const user = c.get("user");
-  if (!user || user.role !== "admin" || user.status !== "active") {
+  if (
+    !user ||
+    c.get("authMethod") !== "cookie" ||
+    user.role !== "admin" ||
+    user.status !== "active"
+  ) {
     return c.json({ error: "Forbidden: Admin access required" }, 403);
   }
   await next();

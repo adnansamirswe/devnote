@@ -57,6 +57,19 @@ export const passwordResetTokens = sqliteTable("password_reset_tokens", {
   createdAt: integer("created_at").notNull(),
 });
 
+export const apiKeys = sqliteTable("api_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  keyPrefix: text("key_prefix").notNull(),
+  keyHash: text("key_hash").notNull().unique(),
+  lastUsedAt: integer("last_used_at"),
+  revokedAt: integer("revoked_at"),
+  createdAt: integer("created_at").notNull(),
+});
+
 export const clients = sqliteTable("clients", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),

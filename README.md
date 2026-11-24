@@ -10,16 +10,74 @@ Never lose track of which Gmail, team, or billing tier owns a Supabase cluster, 
 - **Auto-Matched Brand Badges**: Fuzzy-matches 40+ cloud providers (`Supabase`, `Vercel`, `Cloudflare`, `Stripe`, `Neon`, `Redis`, `Resend`, etc.) via `simple-icons`.
 - **Smart Copy Pills**: Emails, URLs, and inline code in markdown notes render as one-click copyable chips.
 - **Inline Autosave**: Edit titles, notes, and service cards in place with 600ms debounced autosave and optimistic updates.
+- **Floating Workers AI Assistant (`⌘J`)**: Built-in chat widget powered by Cloudflare Workers AI (`env.AI`) to query any client/project/service or propose additions/updates—always asking clarifying questions when unsure and requiring explicit confirmation before saving.
+- **IDE MCP Server (`/api/mcp`)**: Connect Antigravity, Cursor, Claude Code, Windsurf, or VS Code directly to your workspace using revocable Personal API Keys (Remote HTTP or Local Stdio).
 - **Global Command Palette**: Press `⌘K` / `Ctrl+K` (or `/`) to search across clients, projects, and service descriptions.
 - **Multi-User Auth & Security**: Email or username + password login (`bcryptjs`), short-lived JWT access cookies + 30-day rotating refresh tokens, D1-backed rate limiting, account lockout, CSRF origin checks, and per-user data isolation.
 - **Admin Dashboard (`/admin/`)**: Manage users, roles, account status, and workspace usage stats.
 - **JSON Backup**: Per-user export and import from Settings.
-- **Same-Origin Deployment**: One Cloudflare Worker serves both the static Next.js frontend and the Hono + D1 SQLite API.
+- **Same-Origin Deployment**: One Cloudflare Worker serves the static Next.js frontend, Hono + D1 SQLite API, Workers AI, and MCP endpoint.
 
 ## Tech Stack
 
 - **Frontend (`frontend/`)**: Next.js (App Router, TypeScript, static export), Tailwind CSS v4, shadcn/ui, Motion (`motion/react`), TanStack Query, Vaul, Sonner, `simple-icons`
-- **Backend (`backend/`)**: Hono on Cloudflare Workers, Cloudflare D1 (SQLite), Drizzle ORM, Zod, `bcryptjs`
+- **Backend (`backend/`)**: Hono on Cloudflare Workers, Cloudflare D1 (SQLite), Cloudflare Workers AI (`env.AI`), Drizzle ORM, Zod, `bcryptjs`
+- **MCP (`backend/src/lib/mcp.ts` + `mcp/server.mjs`)**: MCP JSON-RPC 2.0 Streamable HTTP endpoint + zero-dependency Node.js stdio bridge
+
+---
+
+## IDE MCP Server Setup
+
+Let your IDE's AI assistant read, search, create, update, or delete clients, projects, and services directly in your `devnote` workspace.
+
+### 1. Generate a Personal API Key
+
+1. Sign in at `/app/` and open **Settings → API Keys & MCP**.
+2. Enter a name (e.g. `Antigravity IDE` or `Cursor`) and click **Generate key**.
+3. Copy the ready-to-paste config shown once (raw keys are stored only as SHA-256 hashes in D1 and can be revoked anytime).
+
+### 2. Option A — Remote HTTP MCP (Recommended, zero local setup)
+
+```json
+{
+  "mcpServers": {
+    "devnote": {
+      "url": "https://your-devnote-domain/api/mcp",
+      "headers": {
+        "Authorization": "Bearer dn_live_YOUR_API_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+### 3. Option B — Local Stdio MCP (Node.js bridge)
+
+For IDEs that spawn MCP servers via a local command:
+
+```json
+{
+  "mcpServers": {
+    "devnote": {
+      "command": "node",
+      "args": ["/absolute/path/to/devnote/mcp/server.mjs"],
+      "env": {
+        "DEVNOTE_API_URL": "https://your-devnote-domain",
+        "DEVNOTE_API_KEY": "dn_live_YOUR_API_KEY_HERE"
+      }
+    }
+  }
+}
+```
+
+### Exposed MCP Tools
+
+- **Read / Search**: `get_workspace_tree`, `search_workspace`, `get_project`
+- **Clients**: `create_client`, `update_client`, `delete_client`
+- **Projects**: `create_project`, `update_project`, `delete_project`
+- **Services**: `create_service`, `update_service`, `delete_service`
+
+All MCP calls are rate-limited, strictly validated with Zod, and scoped exclusively to the API key owner's data (API keys cannot access `/api/admin/*` or mint new keys).
 
 ---
 
@@ -61,7 +119,7 @@ npm run dev
 ```
 
 - Frontend: `http://localhost:3000` (Workspace at `/app/`, Admin Dashboard at `/admin/`)
-- Backend API: `http://localhost:8787`
+- Backend API & MCP: `http://localhost:8787` (`/api/mcp`, `/api/ai/chat`)
 
 ### Optional: Generate demo seed data
 
@@ -75,7 +133,7 @@ This creates `scripts/seed-backup.json`, which you can import from **Settings �
 
 ## Deploy to Cloudflare Workers (Free Tier)
 
-Everything runs on a single Cloudflare Worker serving the static Next.js build (`frontend/out`) and `/api/*` on the same origin.
+Everything runs on a single Cloudflare Worker serving the static Next.js build (`frontend/out`), `/api/*`, Workers AI (`env.AI`), and `/api/mcp` on the same origin.
 
 ### 1. Authenticate Wrangler
 

@@ -16,6 +16,7 @@ interface ShortcutsDialogProps {
 export function ShortcutsDialog({ open, onOpenChange }: ShortcutsDialogProps) {
   const shortcuts = [
     { key: "⌘K / Ctrl+K", desc: "Open global command palette" },
+    { key: "⌘J / Ctrl+J", desc: "Toggle AI assistant chat" },
     { key: "/", desc: "Focus active pane search / filter" },
     { key: "N", desc: "Create new item in active pane" },
     { key: "?", desc: "Show keyboard shortcuts" },

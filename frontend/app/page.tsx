@@ -26,6 +26,8 @@ import {
   Plus,
   Search,
   MoreHorizontal,
+  KeyRound,
+  MessageSquare,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -708,6 +710,78 @@ export default function LandingPage() {
             description="Email or username login with bcrypt hashing, rotating HttpOnly refresh cookies, D1 rate limiting, and a built-in admin dashboard."
             href="/app"
             cta="Launch dashboard"
+          />
+
+          <BentoCard
+            name="IDE MCP Server"
+            className="md:col-span-2"
+            background={
+              <div className="absolute inset-0 p-5 pb-0 [mask-image:linear-gradient(to_bottom,#000_60%,transparent_100%)]">
+                <div className="rounded-lg border border-border/80 bg-background/80 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-2 font-mono text-[11px]">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        MCP
+                      </span>
+                      <span className="text-foreground">POST /api/mcp</span>
+                    </div>
+                    <span className="text-muted-foreground text-[10px]">
+                      Bearer dn_live_…
+                    </span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 font-mono text-[10px]">
+                    {[
+                      "get_workspace_tree",
+                      "search_workspace",
+                      "get_project",
+                      "create_service",
+                      "update_project",
+                      "Remote HTTP & Stdio",
+                    ].map((tool) => (
+                      <span
+                        key={tool}
+                        className="rounded-md border border-chip-border bg-chip-surface px-2 py-0.5 text-foreground"
+                      >
+                        {tool}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            }
+            Icon={KeyRound}
+            description="Connect Antigravity, Cursor, Claude Code, or VS Code to read and update your clients, projects, and services using revocable personal API keys."
+            href="/app"
+            cta="Get MCP config"
+          />
+
+          <BentoCard
+            name="Workers AI Assistant"
+            className="md:col-span-1"
+            background={
+              <div className="absolute inset-0 p-5 pb-0 [mask-image:linear-gradient(to_bottom,#000_60%,transparent_100%)]">
+                <div className="rounded-lg border border-border/80 bg-background/80 p-3 space-y-2">
+                  <div className="ml-auto w-fit rounded-xl rounded-br-sm bg-primary px-2.5 py-1 text-[10px] text-primary-foreground">
+                    Add Supabase to Acme
+                  </div>
+                  <div className="rounded-lg border border-primary/35 bg-card p-2 space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span className="font-semibold text-foreground">Confirm changes</span>
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-medium text-emerald-600 dark:text-emerald-400">
+                        Create Service
+                      </span>
+                    </div>
+                    <div className="inline-flex items-center gap-1 rounded bg-primary px-2 py-0.5 text-[9px] font-medium text-primary-foreground">
+                      <Check className="h-2.5 w-2.5" /> Confirm & Apply
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }
+            Icon={MessageSquare}
+            description="Floating chat widget powered by Cloudflare Workers AI. Queries your stack, asks clarifying questions, and always confirms before saving."
+            href="/app"
+            cta="Try assistant"
           />
         </BentoGrid>
       </section>

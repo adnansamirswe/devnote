@@ -1,6 +1,10 @@
 import {
   AdminStats,
   AdminUserRow,
+  AiAction,
+  AiChatResponse,
+  AiExecuteResponse,
+  ApiKeyItem,
   ClientWithProjects,
   ExportData,
   Client,
@@ -209,6 +213,45 @@ export const api = {
 
   async deleteAdminUser(id: string): Promise<{ ok: boolean }> {
     return request<{ ok: boolean }>(`/api/admin/users/${id}`, {
+      method: "DELETE",
+    });
+  },
+
+  // AI Assistant
+  async aiChat(data: {
+    messages: Array<{ role: "user" | "assistant"; content: string }>;
+    activeClientId?: string;
+    activeProjectId?: string;
+  }): Promise<AiChatResponse> {
+    return request<AiChatResponse>("/api/ai/chat", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async aiExecute(actions: AiAction[]): Promise<AiExecuteResponse> {
+    return request<AiExecuteResponse>("/api/ai/execute", {
+      method: "POST",
+      body: JSON.stringify({ actions }),
+    });
+  },
+
+  // Personal API Keys & MCP
+  async getApiKeys(): Promise<{ keys: ApiKeyItem[] }> {
+    return request<{ keys: ApiKeyItem[] }>("/api/keys", {
+      method: "GET",
+    });
+  },
+
+  async createApiKey(name: string): Promise<{ key: ApiKeyItem; rawKey: string }> {
+    return request<{ key: ApiKeyItem; rawKey: string }>("/api/keys", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  async deleteApiKey(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/keys/${id}`, {
       method: "DELETE",
     });
   },
