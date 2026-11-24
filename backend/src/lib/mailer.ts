@@ -74,8 +74,15 @@ export function generateSixDigitCode(): string {
 export function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   if (!local || !domain) return email;
-  const visible = local.slice(0, Math.min(2, local.length));
-  return `${visible}${"*".repeat(Math.max(2, local.length - visible.length))}@${domain}`;
+  if (local.length <= 2) {
+    return `${local[0]}*@${domain}`;
+  }
+  if (local.length <= 4) {
+    return `${local[0]}**${local.slice(-1)}@${domain}`;
+  }
+  const start = local.slice(0, 2);
+  const end = local.slice(-2);
+  return `${start}${"*".repeat(Math.max(2, local.length - 4))}${end}@${domain}`;
 }
 
 function escapeHtml(value: string): string {

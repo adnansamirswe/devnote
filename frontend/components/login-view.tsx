@@ -270,6 +270,9 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
                   Enter the 6-digit code sent to{" "}
                   <span className="font-mono text-foreground">{pendingEmail}</span>
                 </p>
+                <p className="text-[12px] text-muted-foreground/80 mt-1">
+                  Don’t see it? Check your spam or junk folder.
+                </p>
               </>
             )}
             {step === "verify-device" && (
@@ -280,6 +283,9 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
                 <p className="text-[13px] text-muted-foreground mt-1">
                   We sent a 6-digit sign-in code to{" "}
                   <span className="font-mono text-foreground">{maskedEmail}</span>
+                </p>
+                <p className="text-[12px] text-muted-foreground/80 mt-1">
+                  Don’t see it? Check your spam or junk folder.
                 </p>
               </>
             )}
@@ -301,6 +307,9 @@ export function LoginView({ onLogin, onSignup }: LoginViewProps) {
                 <p className="text-[13px] text-muted-foreground mt-1">
                   Enter the 6-digit code sent to{" "}
                   <span className="font-mono text-foreground">{pendingEmail}</span>
+                </p>
+                <p className="text-[12px] text-muted-foreground/80 mt-1">
+                  Don’t see it? Check your spam or junk folder.
                 </p>
               </>
             )}
