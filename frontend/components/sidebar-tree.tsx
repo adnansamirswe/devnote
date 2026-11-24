@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
-import { ClientWithProjects, ProjectWithServices } from "@/types";
+import { ClientWithProjects, ProjectWithServices, UserProfile } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -24,12 +24,14 @@ import {
   Plus,
   Search,
   Settings,
+  Shield,
   Sun,
   Trash2,
   Upload,
 } from "lucide-react";
 
 interface SidebarTreeProps {
+  user: UserProfile | null;
   clients: ClientWithProjects[];
   isLoading: boolean;
   selectedClientId: string;
@@ -49,6 +51,7 @@ interface SidebarTreeProps {
 }
 
 export function SidebarTree({
+  user,
   clients,
   isLoading,
   selectedClientId,
@@ -315,7 +318,32 @@ export function SidebarTree({
             <Settings className="h-3.5 w-3.5" />
             <span>Settings</span>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-56">
+            {user && (
+              <>
+                <div className="px-2.5 py-2 border-b border-border/70">
+                  <div className="text-[13px] font-medium text-foreground truncate">
+                    @{user.username}
+                  </div>
+                  <div className="font-mono text-[11px] text-muted-foreground truncate">
+                    {user.email}
+                  </div>
+                </div>
+              </>
+            )}
+            {user?.role === "admin" && (
+              <>
+                <DropdownMenuItem className="p-0">
+                  <Link
+                    href="/admin/"
+                    className="flex w-full items-center gap-2 px-2 py-1.5 text-[13px] font-medium text-primary"
+                  >
+                    <Shield className="h-3.5 w-3.5" /> Admin dashboard
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onClick={onExport} className="gap-2 text-[13px]">
               <Download className="h-3.5 w-3.5" /> Export backup (JSON)
             </DropdownMenuItem>

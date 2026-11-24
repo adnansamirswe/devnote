@@ -1,32 +1,44 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, ApiError } from "./api";
-import { ClientWithProjects, Client, Project, Service } from "@/types";
+import { ClientWithProjects, Service, UserProfile } from "@/types";
 import { toast } from "sonner";
 
 export const TREE_QUERY_KEY = ["tree"];
 export const AUTH_QUERY_KEY = ["auth"];
+export const ADMIN_STATS_KEY = ["admin", "stats"];
+export const ADMIN_USERS_KEY = ["admin", "users"];
 
 export function useAuth() {
   const queryClient = useQueryClient();
 
-  const authQuery = useQuery({
+  const authQuery = useQuery<UserProfile | null>({
     queryKey: AUTH_QUERY_KEY,
     queryFn: async () => {
       try {
         const res = await api.me();
-        return res.authenticated;
+        return res.authenticated ? res.user : null;
       } catch {
-        return false;
+        return null;
       }
     },
     retry: false,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 2 * 60 * 1000,
   });
 
   const loginMutation = useMutation({
-    mutationFn: (password: string) => api.login(password),
-    onSuccess: () => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, true);
+    mutationFn: (data: { identifier: string; password: string }) =>
+      api.login(data),
+    onSuccess: (res) => {
+      queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
+      queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
+    },
+  });
+
+  const signupMutation = useMutation({
+    mutationFn: (data: { email: string; username: string; password: string }) =>
+      api.signup(data),
+    onSuccess: (res) => {
+      queryClient.setQueryData(AUTH_QUERY_KEY, res.user);
       queryClient.invalidateQueries({ queryKey: TREE_QUERY_KEY });
     },
   });
@@ -34,28 +46,32 @@ export function useAuth() {
   const logoutMutation = useMutation({
     mutationFn: () => api.logout(),
     onSuccess: () => {
-      queryClient.setQueryData(AUTH_QUERY_KEY, false);
+      queryClient.setQueryData(AUTH_QUERY_KEY, null);
       queryClient.removeQueries({ queryKey: TREE_QUERY_KEY });
+      queryClient.removeQueries({ queryKey: ["admin"] });
     },
   });
 
   return {
+    user: authQuery.data ?? null,
     isAuthenticated: !!authQuery.data,
     isLoading: authQuery.isLoading,
     login: loginMutation.mutateAsync,
+    signup: signupMutation.mutateAsync,
     isLoggingIn: loginMutation.isPending,
-    loginError: loginMutation.error,
+    isSigningUp: signupMutation.isPending,
     logout: logoutMutation.mutateAsync,
   };
 }
 
-export function useTree() {
+export function useTree(enabled = true) {
   return useQuery({
     queryKey: TREE_QUERY_KEY,
     queryFn: async () => {
       const res = await api.getTree();
       return res.clients;
     },
+    enabled,
     staleTime: 60 * 1000,
   });
 }

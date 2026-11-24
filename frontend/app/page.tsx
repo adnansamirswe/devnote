@@ -67,7 +67,7 @@ const BRAND_MARQUEE = [
   "Vercel",
   "Cloudflare",
   "Stripe",
-  "AWS",
+  "GitHub",
   "Google Cloud",
   "PostgreSQL",
   "Redis",
@@ -77,6 +77,8 @@ const BRAND_MARQUEE = [
   "Resend",
   "PostHog",
   "Sentry",
+  "Firebase",
+  "MongoDB",
 ];
 
 export default function LandingPage() {
@@ -227,16 +229,25 @@ export default function LandingPage() {
 
       {/* Marquee of Supported Tech */}
       <section className="py-6 border-y border-border/60 bg-card/30 overflow-hidden">
-        <Marquee pauseOnHover className="[--duration:28s]">
-          {BRAND_MARQUEE.map((tech, idx) => (
-            <div
-              key={idx}
-              className="mx-4 flex items-center gap-2 text-xs font-mono font-medium text-muted-foreground/80 hover:text-foreground transition-colors"
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-primary/60" />
-              <span>{tech}</span>
-            </div>
-          ))}
+        <Marquee pauseOnHover className="[--duration:32s]">
+          {BRAND_MARQUEE.map((tech) => {
+            const brand = matchBrandIcon(tech);
+            return (
+              <div
+                key={tech}
+                className="mx-5 flex items-center gap-2.5 text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {brand && (
+                  <span
+                    className="h-4 w-4 shrink-0 fill-current flex items-center justify-center opacity-80"
+                    dangerouslySetInnerHTML={{ __html: brand.svg }}
+                    aria-hidden="true"
+                  />
+                )}
+                <span>{tech}</span>
+              </div>
+            );
+          })}
         </Marquee>
       </section>
 
@@ -559,7 +570,7 @@ export default function LandingPage() {
                     { name: "Vercel", tag: "Hosting" },
                     { name: "Cloudflare", tag: "Edge & DNS" },
                     { name: "Stripe", tag: "Payments" },
-                    { name: "AWS", tag: "Cloud" },
+                    { name: "GitHub", tag: "Source" },
                     { name: "Neon", tag: "Postgres" },
                     { name: "Redis", tag: "Cache" },
                     { name: "Resend", tag: "Email" },
@@ -657,7 +668,7 @@ export default function LandingPage() {
           />
 
           <BentoCard
-            name="Single-User Password Vault"
+            name="Hardened Multi-User Auth"
             className="md:col-span-2"
             background={
               <div className="absolute inset-0 p-5 pb-0 [mask-image:linear-gradient(to_bottom,#000_60%,transparent_100%)]">
@@ -667,7 +678,7 @@ export default function LandingPage() {
                       <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
                         POST
                       </span>
-                      <span className="text-foreground">/api/login</span>
+                      <span className="text-foreground">/api/auth/login</span>
                     </div>
                     <span className="text-emerald-600 dark:text-emerald-400 text-[10px]">
                       200 OK · Set-Cookie
@@ -676,10 +687,10 @@ export default function LandingPage() {
                   <div className="flex flex-wrap gap-2 font-mono text-[10px]">
                     {[
                       "HttpOnly",
-                      "Secure",
-                      "SameSite=Lax",
-                      "JWT · 30d expiry",
-                      "D1 SQLite",
+                      "Rotating Refresh",
+                      "Bcrypt",
+                      "D1 Rate Limiting",
+                      "Admin Dashboard",
                       "JSON Export / Import",
                     ].map((flag) => (
                       <span
@@ -694,7 +705,7 @@ export default function LandingPage() {
               </div>
             }
             Icon={ShieldCheck}
-            description="Secure single-password gate backed by signed HttpOnly SameSite cookies. Deploy cleanly without multi-tenant overhead."
+            description="Email or username login with bcrypt hashing, rotating HttpOnly refresh cookies, D1 rate limiting, and a built-in admin dashboard."
             href="/app"
             cta="Launch dashboard"
           />

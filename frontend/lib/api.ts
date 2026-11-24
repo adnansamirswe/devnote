@@ -1,4 +1,13 @@
-import { ClientWithProjects, ExportData, Client, Project, Service } from "@/types";
+import {
+  AdminStats,
+  AdminUserRow,
+  ClientWithProjects,
+  ExportData,
+  Client,
+  Project,
+  Service,
+  UserProfile,
+} from "@/types";
 
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -27,11 +36,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!res.ok) {
-    let errMsg = `Request failed: ${res.status}`;
+    let errMsg = `Request failed (${res.status})`;
     try {
       const errJson = await res.json();
-      if (errJson && errJson.error) {
+      if (errJson && typeof errJson.error === "string") {
         errMsg = errJson.error;
+      } else if (errJson?.error?.issues?.[0]?.message) {
+        errMsg = errJson.error.issues[0].message;
       }
     } catch {
       // fallback
@@ -44,21 +55,35 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const api = {
   // Auth
-  async login(password: string): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>("/api/login", {
+  async signup(data: {
+    email: string;
+    username: string;
+    password: string;
+  }): Promise<{ ok: boolean; user: UserProfile }> {
+    return request<{ ok: boolean; user: UserProfile }>("/api/auth/signup", {
       method: "POST",
-      body: JSON.stringify({ password }),
+      body: JSON.stringify(data),
+    });
+  },
+
+  async login(data: {
+    identifier: string;
+    password: string;
+  }): Promise<{ ok: boolean; user: UserProfile }> {
+    return request<{ ok: boolean; user: UserProfile }>("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify(data),
     });
   },
 
   async logout(): Promise<{ ok: boolean }> {
-    return request<{ ok: boolean }>("/api/logout", {
+    return request<{ ok: boolean }>("/api/auth/logout", {
       method: "POST",
     });
   },
 
-  async me(): Promise<{ authenticated: boolean }> {
-    return request<{ authenticated: boolean }>("/api/me", {
+  async me(): Promise<{ authenticated: boolean; user: UserProfile }> {
+    return request<{ authenticated: boolean; user: UserProfile }>("/api/me", {
       method: "GET",
     });
   },
@@ -92,7 +117,11 @@ export const api = {
   },
 
   // Projects
-  async createProject(data: { clientId: string; name: string; details?: string }): Promise<Project & { services: Service[] }> {
+  async createProject(data: {
+    clientId: string;
+    name: string;
+    details?: string;
+  }): Promise<Project & { services: Service[] }> {
     return request<Project & { services: Service[] }>("/api/projects", {
       method: "POST",
       body: JSON.stringify(data),
@@ -113,14 +142,21 @@ export const api = {
   },
 
   // Services
-  async createService(data: { projectId: string; name: string; description?: string }): Promise<Service> {
+  async createService(data: {
+    projectId: string;
+    name: string;
+    description?: string;
+  }): Promise<Service> {
     return request<Service>("/api/services", {
       method: "POST",
       body: JSON.stringify(data),
     });
   },
 
-  async updateService(id: string, data: { name?: string; description?: string }): Promise<Service> {
+  async updateService(
+    id: string,
+    data: { name?: string; description?: string }
+  ): Promise<Service> {
     return request<Service>(`/api/services/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -140,10 +176,40 @@ export const api = {
     });
   },
 
-  async importData(data: { clients: ClientWithProjects[] }): Promise<{ ok: boolean; count: number }> {
+  async importData(data: {
+    clients: ClientWithProjects[];
+  }): Promise<{ ok: boolean; count: number }> {
     return request<{ ok: boolean; count: number }>("/api/import", {
       method: "POST",
       body: JSON.stringify(data),
+    });
+  },
+
+  // Admin
+  async getAdminStats(): Promise<AdminStats> {
+    return request<AdminStats>("/api/admin/stats", { method: "GET" });
+  },
+
+  async getAdminUsers(q?: string): Promise<{ users: AdminUserRow[] }> {
+    const query = q ? `?q=${encodeURIComponent(q)}` : "";
+    return request<{ users: AdminUserRow[] }>(`/api/admin/users${query}`, {
+      method: "GET",
+    });
+  },
+
+  async updateAdminUser(
+    id: string,
+    data: { role?: "user" | "admin"; status?: "active" | "suspended" }
+  ): Promise<{ user: UserProfile }> {
+    return request<{ user: UserProfile }>(`/api/admin/users/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteAdminUser(id: string): Promise<{ ok: boolean }> {
+    return request<{ ok: boolean }>(`/api/admin/users/${id}`, {
+      method: "DELETE",
     });
   },
 };

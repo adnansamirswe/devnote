@@ -7,17 +7,19 @@ Never lose track of which Gmail, team, or billing tier owns a Supabase cluster, 
 ## Features
 
 - **2-Pane Sidebar Tree**: Expandable Client → Project tree on the left, calm click-to-edit page on the right.
-- **Auto-Matched Brand Badges**: Fuzzy-matches 40+ cloud providers (`Supabase`, `Vercel`, `Cloudflare`, `AWS`, `Stripe`, `Neon`, `Redis`, `Resend`, etc.) via `simple-icons`.
+- **Auto-Matched Brand Badges**: Fuzzy-matches 40+ cloud providers (`Supabase`, `Vercel`, `Cloudflare`, `Stripe`, `Neon`, `Redis`, `Resend`, etc.) via `simple-icons`.
 - **Smart Copy Pills**: Emails, URLs, and inline code in markdown notes render as one-click copyable chips.
 - **Inline Autosave**: Edit titles, notes, and service cards in place with 600ms debounced autosave and optimistic updates.
 - **Global Command Palette**: Press `⌘K` / `Ctrl+K` (or `/`) to search across clients, projects, and service descriptions.
-- **Single-User Auth & JSON Backup**: Protected by a single password (`APP_PASSWORD`) and signed `HttpOnly` JWT cookie, with full JSON export/import.
+- **Multi-User Auth & Security**: Email or username + password login (`bcryptjs`), short-lived JWT access cookies + 30-day rotating refresh tokens, D1-backed rate limiting, account lockout, CSRF origin checks, and per-user data isolation.
+- **Admin Dashboard (`/admin/`)**: Manage users, roles, account status, and workspace usage stats.
+- **JSON Backup**: Per-user export and import from Settings.
 - **Same-Origin Deployment**: One Cloudflare Worker serves both the static Next.js frontend and the Hono + D1 SQLite API.
 
 ## Tech Stack
 
 - **Frontend (`frontend/`)**: Next.js (App Router, TypeScript, static export), Tailwind CSS v4, shadcn/ui, Motion (`motion/react`), TanStack Query, Vaul, Sonner, `simple-icons`
-- **Backend (`backend/`)**: Hono on Cloudflare Workers, Cloudflare D1 (SQLite), Drizzle ORM, Zod
+- **Backend (`backend/`)**: Hono on Cloudflare Workers, Cloudflare D1 (SQLite), Drizzle ORM, Zod, `bcryptjs`
 
 ---
 
@@ -33,16 +35,15 @@ npm install --prefix frontend
 npm install --prefix backend
 ```
 
-### 2. Configure local worker secrets
+### 2. Configure local worker secret
 
-Copy the example file in `backend/` and set your local password and JWT secret:
+Copy the example file in `backend/` and set a local JWT signing secret:
 
 ```bash
 cp backend/.dev.vars.example backend/.dev.vars
 ```
 
-Required variables in `backend/.dev.vars`:
-- `APP_PASSWORD` — password used to unlock `/app`
+Required variable in `backend/.dev.vars`:
 - `JWT_SECRET` — random 32+ character string for signing session cookies
 
 ### 3. Apply local D1 database migrations
@@ -59,7 +60,7 @@ cd ..
 npm run dev
 ```
 
-- Frontend: `http://localhost:3000` (Dashboard at `http://localhost:3000/app`)
+- Frontend: `http://localhost:3000` (Workspace at `/app/`, Admin Dashboard at `/admin/`)
 - Backend API: `http://localhost:8787`
 
 ### Optional: Generate demo seed data
@@ -68,7 +69,7 @@ npm run dev
 npx tsx scripts/seed.ts
 ```
 
-This creates `scripts/seed-backup.json`, which you can import from **Settings → Import backup (JSON)** inside `/app`.
+This creates `scripts/seed-backup.json`, which you can import from **Settings → Import backup (JSON)** inside `/app/`.
 
 ---
 
@@ -89,7 +90,7 @@ cd backend
 npx wrangler d1 create devnote-db
 ```
 
-Copy the `database_id` printed by Wrangler and replace `"devnote-local-db"` in `backend/wrangler.jsonc`:
+Copy the `database_id` printed by Wrangler and set it in `backend/wrangler.jsonc`:
 
 ```jsonc
 "d1_databases": [
@@ -108,14 +109,13 @@ Copy the `database_id` printed by Wrangler and replace `"devnote-local-db"` in `
 npx wrangler d1 migrations apply devnote-db --remote
 ```
 
-### 4. Set production secrets
+### 4. Set production secret
 
 ```bash
-npx wrangler secret put APP_PASSWORD
 npx wrangler secret put JWT_SECRET
 ```
 
-Use a strong password for `APP_PASSWORD` and a random 32+ character secret (e.g. `openssl rand -hex 32`) for `JWT_SECRET`.
+Use a random 32+ character secret (for example, generated via `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`).
 
 ### 5. Build and deploy
 

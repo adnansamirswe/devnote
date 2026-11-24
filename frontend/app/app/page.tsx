@@ -54,8 +54,10 @@ function DashboardWorkstation() {
   const searchParams = useSearchParams();
 
   // Queries & Mutations
-  const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
-  const { data: clients = [], isLoading: treeLoading } = useTree();
+  const { user, isAuthenticated, isLoading: authLoading, login, signup, logout } =
+    useAuth();
+  const { data: clients = [], isLoading: treeLoading } =
+    useTree(isAuthenticated);
   const { createClient, updateClient, deleteClient } = useClientMutations();
   const { createProject, updateProject, deleteProject } = useProjectMutations();
   const { createService, updateService, deleteService } = useServiceMutations();
@@ -294,11 +296,12 @@ function DashboardWorkstation() {
   }
 
   if (!isAuthenticated) {
-    return <LoginView onLogin={login} />;
+    return <LoginView onLogin={login} onSignup={signup} />;
   }
 
   const sidebarElement = (onNavigate?: () => void) => (
     <SidebarTree
+      user={user}
       clients={clients}
       isLoading={treeLoading}
       selectedClientId={selectedClientId}
