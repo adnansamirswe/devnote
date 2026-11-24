@@ -40,7 +40,7 @@ export async function sendMail(
         subject: options.subject,
         html: options.html,
         text: options.text,
-        fromName: "devnote",
+        fromName: "DevNote",
         fromEmail: "devnote@byzo.cc",
       }),
     });
