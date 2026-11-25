@@ -270,20 +270,20 @@ export function SidebarTree({
 
                   <span className="flex-1 truncate">{client.name}</span>
 
-                  <span className="shrink-0 text-[12px] font-normal text-muted-foreground group-hover:hidden pr-1">
-                    {projectCount}
-                  </span>
+                  <div className="relative flex h-6 w-6 shrink-0 items-center justify-center">
+                    <span className="pointer-events-none text-[12px] font-normal text-muted-foreground transition-opacity duration-150 group-hover:opacity-0 group-has-[[data-popup-open]]:opacity-0">
+                      {projectCount}
+                    </span>
 
-                  <div className="hidden group-hover:flex items-center shrink-0">
                     <DropdownMenu>
                       <DropdownMenuTrigger
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground"
+                        className="absolute inset-0 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 hover:bg-secondary hover:text-foreground cursor-pointer"
                         aria-label="Client actions"
                       >
                         <MoreHorizontal className="h-3.5 w-3.5" />
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40">
+                      <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-40">
                         <DropdownMenuItem
                           onClick={(e) => {
                             e.stopPropagation();
@@ -331,12 +331,12 @@ export function SidebarTree({
                           <DropdownMenu>
                             <DropdownMenuTrigger
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground transition-opacity"
+                              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100 hover:bg-secondary hover:text-foreground transition-opacity cursor-pointer"
                               aria-label="Project actions"
                             >
                               <MoreHorizontal className="h-3.5 w-3.5" />
                             </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="w-36">
+                            <DropdownMenuContent align="end" side="bottom" sideOffset={4} className="w-36">
                               <DropdownMenuItem
                                 onClick={(e) => {
                                   e.stopPropagation();
