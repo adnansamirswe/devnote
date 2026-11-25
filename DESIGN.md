@@ -19,7 +19,7 @@ Service cards automatically resolve fuzzy service names (e.g. "Supabase", "Cloud
 
 ## 5. Design Decisions
 - **Type Pairing:**
-  - UI, Headings, Labels & Body: `Geist Sans` (`var(--font-geist-sans)`) across all headings (`28px` semibold page title, `14px` semibold section heading, `14px` body, `13px` muted). No ALL-CAPS wide-tracking section labels.
+  - UI, Headings, Labels & Body: `Plus Jakarta Sans` (`var(--font-plus-jakarta)`) across all headings (`28px` semibold page title, `14px` semibold section heading, `14px` body, `13px` muted), with tight geometric extrabold `devnote.` wordmark styling in navbars and footers. No ALL-CAPS wide-tracking section labels.
   - Copyable Values & Code Only: `Geist Mono` (`var(--font-geist-mono)`) reserved strictly for copyable values (emails, IDs, domains, inline code, and command snippets).
 - **Palette:**
   - **Dark Mode (Default):**

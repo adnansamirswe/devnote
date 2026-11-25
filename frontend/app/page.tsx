@@ -9,6 +9,7 @@ import { ShimmerButton } from "@/components/ui/shimmer-button";
 import { BentoGrid, BentoCard } from "@/components/ui/bento-grid";
 import { Marquee } from "@/components/ui/marquee";
 import { Button } from "@/components/ui/button";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { matchBrandIcon } from "@/lib/brand-icons";
 import {
   Terminal,
@@ -135,7 +136,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-40 w-full border-b border-border/80 bg-background/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center gap-2.5 font-mono font-bold text-sm">
+            <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-90">
               <img
                 src="/logo.png"
                 alt="devnote logo"
@@ -143,7 +144,7 @@ export default function LandingPage() {
                 height={24}
                 className="h-6 w-6 object-contain"
               />
-              <span>devnote</span>
+              <BrandWordmark className="text-[18px]" />
             </Link>
             <span className="hidden sm:inline-block text-[11px] font-mono px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border">
               by{" "}
@@ -268,7 +269,7 @@ export default function LandingPage() {
               <div className="md:col-span-4 lg:col-span-3 flex flex-col border-b md:border-b-0 md:border-r border-sidebar-border bg-sidebar select-none">
                 {/* Sidebar Header */}
                 <div className="p-3.5 space-y-2.5 border-b border-sidebar-border">
-                  <div className="flex items-center gap-2 px-1 text-[14px] font-semibold tracking-tight text-foreground">
+                  <div className="flex items-center gap-2 px-1">
                     <img
                       src="/logo.png"
                       alt="devnote logo"
@@ -276,7 +277,7 @@ export default function LandingPage() {
                       height={20}
                       className="h-5 w-5 object-contain"
                     />
-                    <span>devnote</span>
+                    <BrandWordmark className="text-[16px]" />
                   </div>
 
                   <div className="flex h-8 w-full items-center justify-between rounded-lg border border-border-strong bg-background px-2.5 text-[12px] text-muted-foreground">
@@ -829,8 +830,18 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-border py-8 px-4 sm:px-6 text-center text-xs text-muted-foreground font-mono space-y-2">
-        <p>
+      <footer className="border-t border-border py-8 px-4 sm:px-6 text-center text-xs text-muted-foreground space-y-2.5">
+        <div className="flex items-center justify-center gap-2">
+          <img
+            src="/logo.png"
+            alt="devnote logo"
+            width={20}
+            height={20}
+            className="h-5 w-5 object-contain"
+          />
+          <BrandWordmark className="text-[16px]" />
+        </div>
+        <p className="font-mono">
           Open-source showcase project by{" "}
           <a
             href="https://byzo.cc"
@@ -841,7 +852,7 @@ export default function LandingPage() {
             Byzo <ExternalLink className="w-2.5 h-2.5 opacity-60" />
           </a>
         </p>
-        <p>Licensed under MIT • Free to fork, customize, and self-host</p>
+        <p className="font-mono">Licensed under MIT • Free to fork, customize, and self-host</p>
       </footer>
     </div>
   );

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { ClientWithProjects, ProjectWithServices, UserProfile } from "@/types";
 import { getRenewals, groupByAccount } from "@/lib/workspace-helpers";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -112,7 +113,7 @@ export function SidebarTree({
         <div className="flex items-center justify-between px-1">
           <Link
             href="/"
-            className="flex items-center gap-2 text-[15px] font-semibold tracking-tight text-foreground hover:text-primary transition-colors"
+            className="flex items-center gap-2 transition-opacity hover:opacity-90"
           >
             <img
               src="/logo.png"
@@ -121,7 +122,7 @@ export function SidebarTree({
               height={22}
               className="h-5.5 w-5.5 object-contain"
             />
-            <span>devnote</span>
+            <BrandWordmark className="text-[17px]" />
           </Link>
         </div>
 

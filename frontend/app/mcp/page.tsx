@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import {
   ArrowLeft,
   ArrowRight,
@@ -176,7 +177,7 @@ export default function McpDocsPage() {
           <div className="flex items-center gap-3">
             <Link
               href="/"
-              className="flex items-center gap-2 font-mono text-sm font-bold text-foreground hover:text-primary transition-colors"
+              className="flex items-center gap-2 transition-opacity hover:opacity-90"
             >
               <img
                 src="/logo.png"
@@ -185,7 +186,7 @@ export default function McpDocsPage() {
                 height={22}
                 className="h-5.5 w-5.5 object-contain"
               />
-              <span>devnote</span>
+              <BrandWordmark className="text-[17px]" />
             </Link>
             <span className="text-muted-foreground">/</span>
             <span className="text-[13px] font-medium text-foreground">MCP</span>
@@ -407,6 +408,20 @@ export default function McpDocsPage() {
           </div>
         </section>
       </main>
+
+      <footer className="border-t border-border py-6 px-4 sm:px-6 text-center text-xs text-muted-foreground space-y-2">
+        <div className="flex items-center justify-center gap-2">
+          <img
+            src="/logo.png"
+            alt="devnote logo"
+            width={18}
+            height={18}
+            className="h-4.5 w-4.5 object-contain"
+          />
+          <BrandWordmark className="text-[15px]" />
+        </div>
+        <p className="font-mono">Built by Byzo · MIT Licensed</p>
+      </footer>
     </div>
   );
 }

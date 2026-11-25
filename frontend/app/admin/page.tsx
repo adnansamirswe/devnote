@@ -14,6 +14,7 @@ import { api, ApiError } from "@/lib/api";
 import { AdminUserRow } from "@/types";
 import { LoginView } from "@/components/login-view";
 import { Button } from "@/components/ui/button";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -162,8 +163,10 @@ export default function AdminDashboardPage() {
                 height={20}
                 className="h-5 w-5 object-contain"
               />
-              <span className="text-[14px] font-semibold tracking-tight">
-                Admin Dashboard
+              <BrandWordmark className="text-[16px]" />
+              <span className="text-muted-foreground">/</span>
+              <span className="text-[13px] font-medium text-foreground">
+                Admin
               </span>
             </div>
           </div>
