@@ -1,11 +1,19 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState } from "react";
 import { m } from "motion/react";
-import { Service } from "@/types";
+import { toast } from "sonner";
+import { Service, ServiceTier } from "@/types";
 import { matchBrandIcon } from "@/lib/brand-icons";
+import {
+  formatRenewalStatus,
+  resolveServiceEmail,
+  resolveServiceUrl,
+  safeHref,
+} from "@/lib/workspace-helpers";
 import { SmartMarkdown } from "./smart-markdown";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,22 +30,43 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  ArrowUpRight,
+  CalendarClock,
   Check,
+  Copy,
   CopyPlus,
+  Mail,
   MoreHorizontal,
+  Pencil,
   Server,
   Trash2,
 } from "lucide-react";
 
 interface ServiceCardProps {
   service: Service;
-  onUpdate: (data: { name?: string; description?: string }) => Promise<unknown>;
+  knownEmails: string[];
+  onUpdate: (data: {
+    name?: string;
+    description?: string;
+    ownerEmail?: string;
+    dashboardUrl?: string;
+    tier?: ServiceTier;
+    renewalDate?: string;
+  }) => Promise<unknown>;
   onDuplicate: () => Promise<unknown>;
   onDelete: () => Promise<unknown>;
 }
 
+const TIER_OPTIONS: Array<{ value: ServiceTier; label: string }> = [
+  { value: "", label: "None" },
+  { value: "free", label: "Free" },
+  { value: "paid", label: "Paid" },
+  { value: "trial", label: "Trial" },
+];
+
 export function ServiceCard({
   service,
+  knownEmails,
   onUpdate,
   onDuplicate,
   onDelete,
@@ -45,30 +74,57 @@ export function ServiceCard({
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(service.name);
   const [description, setDescription] = useState(service.description);
+  const [ownerEmail, setOwnerEmail] = useState(service.ownerEmail || "");
+  const [dashboardUrl, setDashboardUrl] = useState(service.dashboardUrl || "");
+  const [tier, setTier] = useState<ServiceTier>(service.tier || "");
+  const [renewalDate, setRenewalDate] = useState(service.renewalDate || "");
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [copiedEmail, setCopiedEmail] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
 
-  const cardRef = useRef<HTMLDivElement | null>(null);
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedFadeRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const displayName = isEditing ? name : service.name;
+  const brand = matchBrandIcon(displayName);
 
-  const brand = matchBrandIcon(name);
+  const startEditing = () => {
+    setName(service.name);
+    setDescription(service.description);
+    setOwnerEmail(service.ownerEmail || "");
+    setDashboardUrl(service.dashboardUrl || "");
+    setTier(service.tier || "");
+    setRenewalDate(service.renewalDate || "");
+    setIsEditing(true);
+  };
 
-  useEffect(() => {
-    if (!isEditing) {
-      setName(service.name);
-      setDescription(service.description);
+  const commitSave = async () => {
+    const trimmedName = name.trim() || service.name;
+    const cleanEmail = ownerEmail.trim().toLowerCase();
+    const cleanUrl = dashboardUrl.trim();
+    const cleanDate = renewalDate.trim();
+
+    if (
+      trimmedName === service.name &&
+      description === service.description &&
+      cleanEmail === (service.ownerEmail || "") &&
+      cleanUrl === (service.dashboardUrl || "") &&
+      tier === (service.tier || "") &&
+      cleanDate === (service.renewalDate || "")
+    ) {
+      setIsEditing(false);
+      return;
     }
-  }, [service.name, service.description, isEditing]);
-
-  const commitSave = async (nextName: string, nextDesc: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    const trimmedName = nextName.trim() || service.name;
-    if (trimmedName === service.name && nextDesc === service.description) return;
 
     setSaveStatus("saving");
     try {
-      await onUpdate({ name: trimmedName, description: nextDesc });
+      await onUpdate({
+        name: trimmedName,
+        description,
+        ownerEmail: cleanEmail,
+        dashboardUrl: cleanUrl,
+        tier,
+        renewalDate: cleanDate,
+      });
+      setIsEditing(false);
       setSaveStatus("saved");
       if (savedFadeRef.current) clearTimeout(savedFadeRef.current);
       savedFadeRef.current = setTimeout(() => setSaveStatus("idle"), 1600);
@@ -77,41 +133,39 @@ export function ServiceCard({
     }
   };
 
-  const scheduleSave = (nextName: string, nextDesc: string) => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
-    setSaveStatus("saving");
-    debounceTimerRef.current = setTimeout(() => {
-      void commitSave(nextName, nextDesc);
-    }, 600);
-  };
+  const resolvedEmail = resolveServiceEmail(service);
+  const resolvedHref = safeHref(resolveServiceUrl(service));
+  const renewalStatus = formatRenewalStatus(service.renewalDate || "");
 
-  const handleCardBlur = (e: React.FocusEvent<HTMLDivElement>) => {
-    if (!cardRef.current) return;
-    if (e.relatedTarget && cardRef.current.contains(e.relatedTarget as Node)) {
-      return;
+  const handleCopyEmail = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!resolvedEmail) return;
+    try {
+      await navigator.clipboard.writeText(resolvedEmail);
+      setCopiedEmail(true);
+      toast.success(`Copied ${resolvedEmail}`);
+      setTimeout(() => setCopiedEmail(false), 1400);
+    } catch {
+      toast.error("Failed to copy email");
     }
-    setIsEditing(false);
-    void commitSave(name, description);
   };
 
   return (
     <>
       <m.div
-        ref={cardRef}
         layout
         initial={{ opacity: 0, y: 6 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98 }}
         transition={{ duration: 0.16, ease: "easeOut" }}
-        onBlur={isEditing ? handleCardBlur : undefined}
         className={`group relative flex flex-col rounded-xl border bg-card p-5 font-sans shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none transition-[transform,opacity,border-color] duration-150 ease-out ${
           isEditing
             ? "border-primary/50 ring-1 ring-primary/20"
             : "border-border hover:border-primary/40 hover:-translate-y-0.5 motion-reduce:hover:translate-y-0"
         }`}
       >
-        {/* Header: Brand icon + Name + Menu separated by 1px divider */}
-        <div className="flex items-center justify-between gap-3 pb-3.5 mb-3.5 border-b border-border">
+        {/* Header */}
+        <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-border">
           <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/80 bg-secondary/60 text-foreground">
               {brand ? (
@@ -130,43 +184,62 @@ export function ServiceCard({
             </div>
 
             {isEditing ? (
-              <input
+              <Input
                 type="text"
                 value={name}
-                onChange={(e) => {
-                  setName(e.target.value);
-                  scheduleSave(e.target.value, description);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") {
-                    setIsEditing(false);
-                    void commitSave(name, description);
-                  }
-                }}
+                onChange={(e) => setName(e.target.value)}
                 placeholder="Service name"
                 aria-label="Service name"
-                className="w-full bg-transparent text-[15px] font-semibold tracking-tight text-foreground rounded px-1.5 -mx-1.5 py-0.5 border border-border/80 focus:border-primary/50 focus:outline-none"
+                className="h-8 text-[14px] font-semibold"
               />
             ) : (
-              <h3
-                onClick={() => setIsEditing(true)}
-                className="text-[15px] font-semibold tracking-tight text-foreground truncate rounded px-1.5 -mx-1.5 py-0.5 hover:bg-secondary/60 transition-colors cursor-text"
-              >
-                {name}
-              </h3>
+              <div className="flex items-center gap-2 min-w-0">
+                <h3
+                  onClick={startEditing}
+                  className="text-[15px] font-semibold tracking-tight text-foreground truncate rounded px-1 -mx-1 py-0.5 hover:bg-secondary/60 transition-colors cursor-text"
+                >
+                  {service.name}
+                </h3>
+                {service.tier && (
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium capitalize border ${
+                      service.tier === "paid"
+                        ? "border-primary/25 bg-accent text-primary"
+                        : service.tier === "trial"
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          : "border-border bg-secondary text-muted-foreground"
+                    }`}
+                  >
+                    {service.tier}
+                  </span>
+                )}
+              </div>
             )}
           </div>
 
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1 shrink-0">
             <m.span
               initial={false}
               animate={{ opacity: saveStatus === "saved" ? 1 : 0 }}
               transition={{ duration: 0.2 }}
-              className="inline-flex items-center gap-1 text-[12px] text-muted-foreground pointer-events-none"
+              className="inline-flex items-center gap-1 text-[12px] text-muted-foreground pointer-events-none mr-1"
             >
               <Check className="w-3 h-3 text-emerald-500" />
               Saved
             </m.span>
+
+            {!isEditing && resolvedHref && (
+              <a
+                href={resolvedHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="Open dashboard"
+                aria-label={`Open ${service.name} dashboard`}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors"
+              >
+                <ArrowUpRight className="h-3.5 w-3.5" />
+              </a>
+            )}
 
             <DropdownMenu>
               <DropdownMenuTrigger
@@ -176,6 +249,12 @@ export function ServiceCard({
                 <MoreHorizontal className="h-4 w-4" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
+                <DropdownMenuItem
+                  onClick={startEditing}
+                  className="text-[13px] gap-2"
+                >
+                  <Pencil className="h-3.5 w-3.5" /> Edit
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={() => void onDuplicate()}
                   className="text-[13px] gap-2"
@@ -194,42 +273,193 @@ export function ServiceCard({
           </div>
         </div>
 
-        {/* Body: Rendered markdown or inline textarea */}
+        {/* Body */}
         {isEditing ? (
-          <textarea
-            value={description}
-            onChange={(e) => {
-              setDescription(e.target.value);
-              scheduleSave(name, e.target.value);
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void commitSave();
             }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                setIsEditing(false);
-                void commitSave(name, description);
-              }
-            }}
-            placeholder="Account email, tier, region, or links…"
-            rows={4}
-            autoFocus
-            className="w-full rounded-lg border border-border/80 bg-background/60 px-2.5 py-2 text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none resize-y"
-          />
-        ) : (
-          <div
-            onClick={() => setIsEditing(true)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setIsEditing(true);
-              }
-            }}
-            className="flex-1 rounded-lg px-2 py-1.5 -mx-2 hover:bg-secondary/40 transition-colors cursor-text min-h-[52px]"
+            className="space-y-3"
           >
-            <SmartMarkdown
-              content={description}
-              placeholder="Add account email, tier, or notes…"
-            />
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Owner email
+              </label>
+              <Input
+                type="email"
+                value={ownerEmail}
+                onChange={(e) => setOwnerEmail(e.target.value)}
+                placeholder="you@domain.com"
+                className="h-8 text-[13px] font-mono"
+              />
+              {knownEmails.length > 0 && (
+                <div className="flex flex-wrap gap-1 pt-1">
+                  {knownEmails.slice(0, 4).map((em) => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => setOwnerEmail(em)}
+                      className={`rounded-md border px-1.5 py-0.5 font-mono text-[11px] transition-colors cursor-pointer ${
+                        ownerEmail.trim().toLowerCase() === em
+                          ? "border-primary/40 bg-accent text-primary"
+                          : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Dashboard URL
+              </label>
+              <Input
+                type="url"
+                value={dashboardUrl}
+                onChange={(e) => setDashboardUrl(e.target.value)}
+                placeholder="https://dash.cloudflare.com/..."
+                className="h-8 text-[13px] font-mono"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Tier
+                </label>
+                <div className="grid grid-cols-4 gap-1 rounded-lg border border-border bg-secondary/50 p-0.5">
+                  {TIER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value || "none"}
+                      type="button"
+                      onClick={() => setTier(opt.value)}
+                      className={`h-7 rounded-md text-[11px] font-medium transition-colors cursor-pointer ${
+                        tier === opt.value
+                          ? "bg-card text-foreground shadow-xs"
+                          : "text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-[11px] font-medium text-muted-foreground">
+                  Renewal / expiry
+                </label>
+                <Input
+                  type="date"
+                  value={renewalDate}
+                  onChange={(e) => setRenewalDate(e.target.value)}
+                  className="h-8 text-[12px] font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-[11px] font-medium text-muted-foreground">
+                Notes
+              </label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="Region, project ID, account notes…"
+                rows={3}
+                className="w-full rounded-lg border border-border/80 bg-background/60 px-2.5 py-2 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/60 focus:border-primary/50 focus:outline-none resize-y"
+              />
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setName(service.name);
+                  setDescription(service.description);
+                  setOwnerEmail(service.ownerEmail || "");
+                  setDashboardUrl(service.dashboardUrl || "");
+                  setTier(service.tier || "");
+                  setRenewalDate(service.renewalDate || "");
+                  setIsEditing(false);
+                }}
+                className="h-8 text-[12px]"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={saveStatus === "saving"}
+                className="h-8 text-[12px]"
+              >
+                {saveStatus === "saving" ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <div className="flex-1 flex flex-col gap-3">
+            {/* Quick Metadata Strip: 1-click Copy Email + Renewal Pill */}
+            {(resolvedEmail || renewalStatus) && (
+              <div className="flex flex-wrap items-center gap-1.5">
+                {resolvedEmail && (
+                  <button
+                    type="button"
+                    onClick={(e) => void handleCopyEmail(e)}
+                    title="Click to copy owner email"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-secondary/50 px-2 py-1 font-mono text-[12px] text-foreground hover:border-primary/40 hover:bg-secondary transition-colors cursor-pointer"
+                  >
+                    <Mail className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{resolvedEmail}</span>
+                    {copiedEmail ? (
+                      <Check className="h-3 w-3 shrink-0 text-emerald-500" />
+                    ) : (
+                      <Copy className="h-3 w-3 shrink-0 text-muted-foreground" />
+                    )}
+                  </button>
+                )}
+
+                {renewalStatus && (
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 font-mono text-[11px] font-medium ${
+                      renewalStatus.urgency === "overdue"
+                        ? "border-destructive/30 bg-destructive/10 text-destructive"
+                        : renewalStatus.urgency === "soon"
+                          ? "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                          : "border-border bg-secondary/50 text-muted-foreground"
+                    }`}
+                  >
+                    <CalendarClock className="h-3 w-3 shrink-0" />
+                    <span>{renewalStatus.label}</span>
+                  </span>
+                )}
+              </div>
+            )}
+
+            {/* Clickable Notes Area */}
+            <div
+              onClick={startEditing}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  startEditing();
+                }
+              }}
+              className="flex-1 rounded-lg px-2 py-1.5 -mx-2 hover:bg-secondary/40 transition-colors cursor-text min-h-[40px]"
+            >
+              <SmartMarkdown
+                content={service.description}
+                placeholder="Click to add owner email, dashboard URL, or notes…"
+              />
+            </div>
           </div>
         )}
       </m.div>

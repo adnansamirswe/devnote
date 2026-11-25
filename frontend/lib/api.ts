@@ -180,6 +180,9 @@ export const api = {
     clientId: string;
     name: string;
     details?: string;
+    liveUrl?: string;
+    repoUrl?: string;
+    status?: "active" | "paused" | "archived";
   }): Promise<Project & { services: Service[] }> {
     return request<Project & { services: Service[] }>("/api/projects", {
       method: "POST",
@@ -187,7 +190,16 @@ export const api = {
     });
   },
 
-  async updateProject(id: string, data: { name?: string; details?: string }): Promise<Project> {
+  async updateProject(
+    id: string,
+    data: {
+      name?: string;
+      details?: string;
+      liveUrl?: string;
+      repoUrl?: string;
+      status?: "active" | "paused" | "archived";
+    }
+  ): Promise<Project> {
     return request<Project>(`/api/projects/${id}`, {
       method: "PATCH",
       body: JSON.stringify(data),
@@ -205,6 +217,10 @@ export const api = {
     projectId: string;
     name: string;
     description?: string;
+    ownerEmail?: string;
+    dashboardUrl?: string;
+    tier?: "" | "free" | "paid" | "trial";
+    renewalDate?: string;
   }): Promise<Service> {
     return request<Service>("/api/services", {
       method: "POST",
@@ -214,7 +230,14 @@ export const api = {
 
   async updateService(
     id: string,
-    data: { name?: string; description?: string }
+    data: {
+      name?: string;
+      description?: string;
+      ownerEmail?: string;
+      dashboardUrl?: string;
+      tier?: "" | "free" | "paid" | "trial";
+      renewalDate?: string;
+    }
   ): Promise<Service> {
     return request<Service>(`/api/services/${id}`, {
       method: "PATCH",

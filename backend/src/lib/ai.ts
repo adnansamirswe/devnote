@@ -5,6 +5,25 @@ import * as schema from "../db/schema";
 
 const AI_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
+const optionalHttpUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === "" || /^https?:\/\//i.test(v), "URL must start with http:// or https://");
+
+const optionalOwnerEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(160)
+  .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Invalid email");
+
+const optionalDateYmd = z
+  .string()
+  .trim()
+  .max(20)
+  .refine((v) => v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v), "Date must be YYYY-MM-DD");
+
 export const aiActionSchema = z.discriminatedUnion("type", [
   z
     .object({
@@ -38,6 +57,9 @@ export const aiActionSchema = z.discriminatedUnion("type", [
       clientName: z.string().max(100).optional(),
       name: z.string().trim().min(1).max(100),
       details: z.string().max(50000).optional().default(""),
+      liveUrl: optionalHttpUrl.optional().default(""),
+      repoUrl: optionalHttpUrl.optional().default(""),
+      status: z.enum(["active", "paused", "archived"]).optional().default("active"),
     })
     .strict(),
   z
@@ -47,6 +69,9 @@ export const aiActionSchema = z.discriminatedUnion("type", [
       projectName: z.string().max(100).optional(),
       name: z.string().trim().min(1).max(100).optional(),
       details: z.string().max(50000).optional(),
+      liveUrl: optionalHttpUrl.optional(),
+      repoUrl: optionalHttpUrl.optional(),
+      status: z.enum(["active", "paused", "archived"]).optional(),
     })
     .strict(),
   z
@@ -63,6 +88,10 @@ export const aiActionSchema = z.discriminatedUnion("type", [
       projectName: z.string().max(100).optional(),
       name: z.string().trim().min(1).max(100),
       description: z.string().max(50000).optional().default(""),
+      ownerEmail: optionalOwnerEmail.optional().default(""),
+      dashboardUrl: optionalHttpUrl.optional().default(""),
+      tier: z.enum(["", "free", "paid", "trial"]).optional().default(""),
+      renewalDate: optionalDateYmd.optional().default(""),
     })
     .strict(),
   z
@@ -72,6 +101,10 @@ export const aiActionSchema = z.discriminatedUnion("type", [
       serviceName: z.string().max(100).optional(),
       name: z.string().trim().min(1).max(100).optional(),
       description: z.string().max(50000).optional(),
+      ownerEmail: optionalOwnerEmail.optional(),
+      dashboardUrl: optionalHttpUrl.optional(),
+      tier: z.enum(["", "free", "paid", "trial"]).optional(),
+      renewalDate: optionalDateYmd.optional(),
     })
     .strict(),
   z
@@ -127,9 +160,16 @@ function buildSystemPrompt(
       id: p.id,
       name: p.name,
       details: p.details,
+      liveUrl: p.liveUrl,
+      repoUrl: p.repoUrl,
+      status: p.status,
       services: p.services.map((s) => ({
         id: s.id,
         name: s.name,
+        ownerEmail: s.ownerEmail,
+        dashboardUrl: s.dashboardUrl,
+        tier: s.tier,
+        renewalDate: s.renewalDate,
         description: s.description,
       })),
     })),
@@ -145,9 +185,12 @@ ACTIVE SELECTION IN UI:
 - activeProjectId: ${activeProjectId || "none"}
 
 STRICT RULES:
-1. READ QUERIES: When the user asks about clients, projects, or services (e.g., list services for a project, find which email owns Supabase, summarize a client), answer accurately using ONLY the workspace data above. Format emails, domains, and IDs in inline code backticks so they become copyable chips.
+1. READ QUERIES: When the user asks about clients, projects, or services (e.g., list services for a project, find which email owns Supabase, summarize everything under an email), answer accurately using ONLY the workspace data above. Format emails, domains, and IDs in inline code backticks so they become copyable chips.
 2. WRITE INTENT (ADD / UPDATE / DELETE):
    - NEVER assume missing critical info. If you are not sure which client or project an item belongs to, or if the name/details are unclear, ask a brief, direct clarifying question and return "proposedActions": [].
+   - Always populate structured fields when the user provides them:
+     * Projects: "liveUrl" (https://...), "repoUrl" (https://github.com/...), "status" ("active" | "paused" | "archived")
+     * Services: "ownerEmail" (email address), "dashboardUrl" (https://...), "tier" ("free" | "paid" | "trial" | ""), "renewalDate" ("YYYY-MM-DD")
    - When you have enough information to propose changes, populate "proposedActions" with exact structured actions AND write a concise "reply" summarizing what will be changed and asking the user to click "Confirm & Apply" or tell you what to modify.
    - If the user asks to change something in a previous unconfirmed proposal, output the updated "proposedActions" list and ask for confirmation again.
    - When creating a new client AND projects/services in the same proposal, assign a "tempId" (e.g., "temp_client_1", "temp_project_1") and reference it in the child action's "clientId" or "projectId".
@@ -161,11 +204,11 @@ STRICT RULES:
     // { "type": "create_client", "tempId"?: "temp_client_1", "name": "...", "notes"?: "..." }
     // { "type": "update_client", "clientId": "...", "clientName"?: "...", "name"?: "...", "notes"?: "..." }
     // { "type": "delete_client", "clientId": "...", "clientName"?: "..." }
-    // { "type": "create_project", "tempId"?: "temp_project_1", "clientId": "...", "clientName"?: "...", "name": "...", "details"?: "..." }
-    // { "type": "update_project", "projectId": "...", "projectName"?: "...", "name"?: "...", "details"?: "..." }
+    // { "type": "create_project", "tempId"?: "temp_project_1", "clientId": "...", "clientName"?: "...", "name": "...", "details"?: "...", "liveUrl"?: "...", "repoUrl"?: "...", "status"?: "active" }
+    // { "type": "update_project", "projectId": "...", "projectName"?: "...", "name"?: "...", "details"?: "...", "liveUrl"?: "...", "repoUrl"?: "...", "status"?: "..." }
     // { "type": "delete_project", "projectId": "...", "projectName"?: "..." }
-    // { "type": "create_service", "projectId": "...", "projectName"?: "...", "name": "...", "description"?: "..." }
-    // { "type": "update_service", "serviceId": "...", "serviceName"?: "...", "name"?: "...", "description"?: "..." }
+    // { "type": "create_service", "projectId": "...", "projectName"?: "...", "name": "...", "description"?: "...", "ownerEmail"?: "...", "dashboardUrl"?: "...", "tier"?: "free"|"paid"|"trial"|"", "renewalDate"?: "YYYY-MM-DD" }
+    // { "type": "update_service", "serviceId": "...", "serviceName"?: "...", "name"?: "...", "description"?: "...", "ownerEmail"?: "...", "dashboardUrl"?: "...", "tier"?: "...", "renewalDate"?: "..." }
     // { "type": "delete_service", "serviceId": "...", "serviceName"?: "..." }
   ]
 }`;
@@ -186,7 +229,6 @@ function parseModelResponse(raw: unknown): ModelJsonReply {
       try {
         parsedObj = JSON.parse(cleaned);
       } catch {
-        // Fallback: return plain text reply with no actions
         return { reply: inner.trim(), proposedActions: [] };
       }
     }
@@ -240,7 +282,6 @@ export async function runAiChat(
     ...messages.map((m) => ({ role: m.role, content: m.content })),
   ];
 
-  // Workers AI run call
   const result = await ai.run(AI_MODEL as Parameters<Ai["run"]>[0], {
     messages: modelMessages,
     response_format: { type: "json_object" },
@@ -339,6 +380,9 @@ export async function executeAiActions(
         clientId,
         name: action.name,
         details: action.details ?? "",
+        liveUrl: action.liveUrl ?? "",
+        repoUrl: action.repoUrl ?? "",
+        status: action.status ?? "active",
         createdAt: now,
         updatedAt: now,
       });
@@ -365,6 +409,9 @@ export async function executeAiActions(
       const patch: Partial<schema.NewProject> = { updatedAt: now };
       if (action.name !== undefined) patch.name = action.name;
       if (action.details !== undefined) patch.details = action.details;
+      if (action.liveUrl !== undefined) patch.liveUrl = action.liveUrl;
+      if (action.repoUrl !== undefined) patch.repoUrl = action.repoUrl;
+      if (action.status !== undefined) patch.status = action.status;
 
       await db.update(schema.projects).set(patch).where(eq(schema.projects.id, projectId));
       focusClientId = existing.clientId;
@@ -410,6 +457,11 @@ export async function executeAiActions(
         projectId,
         name: action.name,
         description: action.description ?? "",
+        ownerEmail: action.ownerEmail ?? "",
+        dashboardUrl: action.dashboardUrl ?? "",
+        tier: action.tier ?? "",
+        renewalDate: action.renewalDate ?? "",
+        lastReminderSentAt: null,
         createdAt: now,
         updatedAt: now,
       });
@@ -441,6 +493,15 @@ export async function executeAiActions(
       const patch: Partial<schema.NewService> = { updatedAt: now };
       if (action.name !== undefined) patch.name = action.name;
       if (action.description !== undefined) patch.description = action.description;
+      if (action.ownerEmail !== undefined) patch.ownerEmail = action.ownerEmail;
+      if (action.dashboardUrl !== undefined) patch.dashboardUrl = action.dashboardUrl;
+      if (action.tier !== undefined) patch.tier = action.tier;
+      if (action.renewalDate !== undefined) {
+        patch.renewalDate = action.renewalDate;
+        if (action.renewalDate !== existing.renewalDate) {
+          patch.lastReminderSentAt = null;
+        }
+      }
 
       await db
         .update(schema.services)

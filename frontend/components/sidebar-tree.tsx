@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTheme } from "next-themes";
 import { ClientWithProjects, ProjectWithServices, UserProfile } from "@/types";
+import { getRenewals, groupByAccount } from "@/lib/workspace-helpers";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -14,13 +15,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  CalendarClock,
   ChevronRight,
   Command,
+  Compass,
   Download,
   HelpCircle,
   KeyRound,
   LogOut,
-  MessageSquare,
+  Mail,
   Moon,
   MoreHorizontal,
   Plus,
@@ -32,12 +35,18 @@ import {
   Upload,
 } from "lucide-react";
 
+export type WorkspaceViewMode = "home" | "accounts" | "providers" | "renewals" | "client" | "project";
+
 interface SidebarTreeProps {
   user: UserProfile | null;
   clients: ClientWithProjects[];
   isLoading: boolean;
+  activeView: WorkspaceViewMode;
   selectedClientId: string;
   selectedProjectId: string;
+  onSelectHome: () => void;
+  onSelectAccounts: () => void;
+  onSelectRenewals: () => void;
   onSelectClient: (clientId: string) => void;
   onSelectProject: (clientId: string, projectId: string) => void;
   onNewClient: () => void;
@@ -59,8 +68,12 @@ export function SidebarTree({
   user,
   clients,
   isLoading,
+  activeView,
   selectedClientId,
   selectedProjectId,
+  onSelectHome,
+  onSelectAccounts,
+  onSelectRenewals,
   onSelectClient,
   onSelectProject,
   onNewClient,
@@ -68,8 +81,6 @@ export function SidebarTree({
   onDeleteClient,
   onDeleteProject,
   onOpenCommandPalette,
-  onToggleAssistant,
-  assistantOpen,
   onOpenShortcuts,
   onOpenMcpKeys,
   onExport,
@@ -80,24 +91,24 @@ export function SidebarTree({
   const { theme, setTheme } = useTheme();
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
 
-  // Auto-expand the currently selected client
-  useEffect(() => {
-    if (selectedClientId) {
-      setExpandedIds((prev) =>
-        prev[selectedClientId] ? prev : { ...prev, [selectedClientId]: true }
-      );
-    }
-  }, [selectedClientId]);
+  const accountCount = useMemo(() => groupByAccount(clients).accounts.length, [clients]);
+  const urgentRenewalsCount = useMemo(
+    () => getRenewals(clients).filter((r) => r.daysUntil <= 14).length,
+    [clients]
+  );
 
   const toggleExpand = (clientId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setExpandedIds((prev) => ({ ...prev, [clientId]: !prev[clientId] }));
+    setExpandedIds((prev) => {
+      const current = prev[clientId] ?? clientId === selectedClientId;
+      return { ...prev, [clientId]: !current };
+    });
   };
 
   return (
     <aside className="flex h-full w-full flex-col bg-sidebar font-sans select-none">
-      {/* Top: Brand + Search (with own border above divider) */}
-      <div className="p-3.5 space-y-3 border-b border-sidebar-border shrink-0">
+      {/* Top: Brand + Search */}
+      <div className="p-3.5 space-y-2.5 border-b border-sidebar-border shrink-0">
         <div className="flex items-center justify-between px-1">
           <Link
             href="/"
@@ -114,7 +125,6 @@ export function SidebarTree({
           </Link>
         </div>
 
-        {/* Single Search Trigger (own visible border, opens ⌘K) */}
         <button
           type="button"
           onClick={onOpenCommandPalette}
@@ -122,27 +132,96 @@ export function SidebarTree({
         >
           <span className="flex items-center gap-2">
             <Search className="h-3.5 w-3.5" />
-            <span>Search…</span>
+            <span>Jump or copy…</span>
           </span>
           <kbd className="inline-flex items-center gap-0.5 rounded bg-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground border border-border">
             <Command className="h-2.5 w-2.5" />K
           </kbd>
         </button>
 
-        {/* + New Client */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onNewClient}
-          className="w-full h-8 justify-start gap-2 text-[13px] font-medium border-border bg-card hover:bg-secondary/70"
-        >
-          <Plus className="h-3.5 w-3.5 text-muted-foreground" />
-          <span>New client</span>
-        </Button>
+        {/* Workspace Quick Views */}
+        <div className="space-y-0.5 pt-0.5">
+          <button
+            type="button"
+            onClick={() => {
+              onSelectHome();
+              onNavigate?.();
+            }}
+            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[13px] transition-colors cursor-pointer ${
+              activeView === "home"
+                ? "bg-accent text-accent-foreground font-medium"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Compass className="h-3.5 w-3.5" />
+              <span>Launchpad</span>
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectAccounts();
+              onNavigate?.();
+            }}
+            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[13px] transition-colors cursor-pointer ${
+              activeView === "accounts" || activeView === "providers"
+                ? "bg-accent text-accent-foreground font-medium"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <Mail className="h-3.5 w-3.5" />
+              <span>Accounts</span>
+            </span>
+            {accountCount > 0 && (
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {accountCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              onSelectRenewals();
+              onNavigate?.();
+            }}
+            className={`flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-[13px] transition-colors cursor-pointer ${
+              activeView === "renewals"
+                ? "bg-accent text-accent-foreground font-medium"
+                : "text-muted-foreground hover:bg-secondary/80 hover:text-foreground"
+            }`}
+          >
+            <span className="flex items-center gap-2">
+              <CalendarClock className="h-3.5 w-3.5" />
+              <span>Renewals</span>
+            </span>
+            {urgentRenewalsCount > 0 && (
+              <span className="rounded-full bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.2 font-mono text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                {urgentRenewalsCount}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Expandable Client -> Project Tree */}
       <div className="flex-1 overflow-y-auto px-2.5 py-3 space-y-1">
+        <div className="flex items-center justify-between px-2 pb-1">
+          <span className="text-[12px] font-medium text-muted-foreground">Clients</span>
+          <button
+            type="button"
+            onClick={onNewClient}
+            aria-label="New client"
+            className="inline-flex h-6 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            <span>New</span>
+          </button>
+        </div>
+
         {isLoading ? (
           <div className="space-y-2 px-1">
             <Skeleton className="h-8 w-full rounded-lg" />
@@ -155,14 +234,14 @@ export function SidebarTree({
           </p>
         ) : (
           clients.map((client) => {
-            const isExpanded = !!expandedIds[client.id];
-            const isClientSelected = client.id === selectedClientId;
-            const isClientPageActive = isClientSelected && !selectedProjectId;
+            const isExpanded = expandedIds[client.id] ?? client.id === selectedClientId;
+            const isClientSelected =
+              (activeView === "client" || activeView === "project") &&
+              client.id === selectedClientId;
             const projectCount = client.projects.length;
 
             return (
               <div key={client.id} className="space-y-0.5">
-                {/* Client Row: accent tint + 2px left accent bar when selected */}
                 <div
                   onClick={() => {
                     setExpandedIds((prev) => ({ ...prev, [client.id]: true }));
@@ -173,7 +252,7 @@ export function SidebarTree({
                     isClientSelected
                       ? "bg-accent text-accent-foreground font-semibold before:absolute before:inset-y-1.5 before:left-0 before:w-[2px] before:rounded-full before:bg-primary"
                       : "text-foreground/85 hover:bg-secondary/80 hover:text-foreground"
-                  } ${isClientPageActive ? "" : ""}`}
+                  }`}
                 >
                   <button
                     type="button"
@@ -190,9 +269,8 @@ export function SidebarTree({
 
                   <span className="flex-1 truncate">{client.name}</span>
 
-                  {/* Labeled muted count on client row; swaps to menu on hover */}
                   <span className="shrink-0 text-[12px] font-normal text-muted-foreground group-hover:hidden pr-1">
-                    {projectCount} {projectCount === 1 ? "project" : "projects"}
+                    {projectCount}
                   </span>
 
                   <div className="hidden group-hover:flex items-center shrink-0">
@@ -229,7 +307,6 @@ export function SidebarTree({
                   </div>
                 </div>
 
-                {/* Nested Projects with thin vertical guide line */}
                 {isExpanded && (
                   <div className="ml-4 pl-2.5 border-l border-border space-y-0.5 py-0.5">
                     {client.projects.map((project) => {
@@ -274,7 +351,6 @@ export function SidebarTree({
                       );
                     })}
 
-                    {/* Subtle + New project row at end of expanded client */}
                     <button
                       type="button"
                       onClick={() => onNewProjectForClient(client.id)}
@@ -328,16 +404,14 @@ export function SidebarTree({
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             {user && (
-              <>
-                <div className="px-2.5 py-2 border-b border-border/70">
-                  <div className="text-[13px] font-medium text-foreground truncate">
-                    @{user.username}
-                  </div>
-                  <div className="font-mono text-[11px] text-muted-foreground truncate">
-                    {user.email}
-                  </div>
+              <div className="px-2.5 py-2 border-b border-border/70">
+                <div className="text-[13px] font-medium text-foreground truncate">
+                  @{user.username}
                 </div>
-              </>
+                <div className="font-mono text-[11px] text-muted-foreground truncate">
+                  {user.email}
+                </div>
+              </div>
             )}
             {user?.role === "admin" && (
               <>

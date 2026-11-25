@@ -5,6 +5,27 @@ import * as schema from "../db/schema";
 
 const PROTOCOL_VERSION = "2024-11-05";
 
+const EMAIL_EXTRACT_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+const optionalHttpUrl = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => v === "" || /^https?:\/\//i.test(v), "URL must start with http:// or https://");
+
+const optionalOwnerEmail = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(160)
+  .refine((v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v), "Invalid email");
+
+const optionalDateYmd = z
+  .string()
+  .trim()
+  .max(20)
+  .refine((v) => v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v), "Date must be YYYY-MM-DD");
+
 export const MCP_TOOLS = [
   {
     name: "get_workspace_tree",
@@ -19,7 +40,7 @@ export const MCP_TOOLS = [
   {
     name: "search_workspace",
     description:
-      "Search across all clients, projects, and service descriptions (emails, domains, tiers, notes) by keyword.",
+      "Search across all clients, projects, and services (names, owner emails, dashboard URLs, tiers, descriptions) by keyword.",
     inputSchema: {
       type: "object",
       properties: {
@@ -29,6 +50,60 @@ export const MCP_TOOLS = [
         },
       },
       required: ["query"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_by_account",
+    description:
+      "Reverse lookup: group all services and projects by owner email address. Optionally filter to one email address.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        email: {
+          type: "string",
+          description: "Optional email filter (case-insensitive substring or exact email)",
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "sync_project_stack",
+    description:
+      "Idempotently create or update a Client, Project (liveUrl, repoUrl, status, details), and its Services list in one call. Ideal for logging a repository's stack straight from your IDE.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clientName: { type: "string", description: "Client or group name (e.g. 'Personal', 'Byzo', 'Acme')" },
+        projectName: { type: "string", description: "Project name (e.g. 'devnote', 'uuprint')" },
+        details: { type: "string", description: "Optional project notes" },
+        liveUrl: { type: "string", description: "Optional production URL (https://...)" },
+        repoUrl: { type: "string", description: "Optional Git repository URL (https://...)" },
+        status: {
+          type: "string",
+          enum: ["active", "paused", "archived"],
+          description: "Project status (default: active)",
+        },
+        services: {
+          type: "array",
+          description: "List of services to upsert on this project (matched case-insensitively by name)",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string" },
+              ownerEmail: { type: "string" },
+              dashboardUrl: { type: "string" },
+              tier: { type: "string", enum: ["", "free", "paid", "trial"] },
+              renewalDate: { type: "string", description: "YYYY-MM-DD" },
+              description: { type: "string" },
+            },
+            required: ["name"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["clientName", "projectName", "services"],
       additionalProperties: false,
     },
   },
@@ -92,10 +167,10 @@ export const MCP_TOOLS = [
       properties: {
         clientId: { type: "string", description: "UUID of the parent client" },
         name: { type: "string", description: "Project name (1-100 chars)" },
-        details: {
-          type: "string",
-          description: "Optional markdown notes/architecture details for the project",
-        },
+        details: { type: "string", description: "Optional markdown notes" },
+        liveUrl: { type: "string", description: "Optional live site URL (https://...)" },
+        repoUrl: { type: "string", description: "Optional Git repository URL (https://...)" },
+        status: { type: "string", enum: ["active", "paused", "archived"] },
       },
       required: ["clientId", "name"],
       additionalProperties: false,
@@ -103,13 +178,16 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_project",
-    description: "Update an existing project's name or markdown notes.",
+    description: "Update an existing project's name, notes, links, or status.",
     inputSchema: {
       type: "object",
       properties: {
         projectId: { type: "string", description: "UUID of the project" },
         name: { type: "string", description: "Updated project name" },
         details: { type: "string", description: "Updated markdown notes" },
+        liveUrl: { type: "string", description: "Updated live URL" },
+        repoUrl: { type: "string", description: "Updated Git repo URL" },
+        status: { type: "string", enum: ["active", "paused", "archived"] },
       },
       required: ["projectId"],
       additionalProperties: false,
@@ -135,14 +213,12 @@ export const MCP_TOOLS = [
       type: "object",
       properties: {
         projectId: { type: "string", description: "UUID of the parent project" },
-        name: {
-          type: "string",
-          description: "Service name (e.g. 'Supabase', 'Vercel', 'Cloudflare')",
-        },
-        description: {
-          type: "string",
-          description: "Markdown description: owner email, tier, region, domain, or notes",
-        },
+        name: { type: "string", description: "Service name (e.g. 'Supabase', 'Vercel', 'Cloudflare')" },
+        ownerEmail: { type: "string", description: "Owner account email address" },
+        dashboardUrl: { type: "string", description: "Direct dashboard URL (https://...)" },
+        tier: { type: "string", enum: ["", "free", "paid", "trial"] },
+        renewalDate: { type: "string", description: "Optional renewal/expiry date (YYYY-MM-DD)" },
+        description: { type: "string", description: "Additional markdown notes" },
       },
       required: ["projectId", "name"],
       additionalProperties: false,
@@ -150,12 +226,16 @@ export const MCP_TOOLS = [
   },
   {
     name: "update_service",
-    description: "Update an existing service's name or markdown description.",
+    description: "Update an existing service's name, owner email, dashboard URL, tier, renewal date, or description.",
     inputSchema: {
       type: "object",
       properties: {
         serviceId: { type: "string", description: "UUID of the service" },
         name: { type: "string", description: "Updated service name" },
+        ownerEmail: { type: "string", description: "Updated owner email" },
+        dashboardUrl: { type: "string", description: "Updated dashboard URL" },
+        tier: { type: "string", enum: ["", "free", "paid", "trial"] },
+        renewalDate: { type: "string", description: "Updated renewal date (YYYY-MM-DD)" },
         description: { type: "string", description: "Updated markdown description" },
       },
       required: ["serviceId"],
@@ -178,6 +258,33 @@ export const MCP_TOOLS = [
 
 // Strict Zod schemas for tool arguments
 const searchArgs = z.object({ query: z.string().trim().min(1).max(200) }).strict();
+const listByAccountArgs = z
+  .object({ email: z.string().trim().toLowerCase().max(160).optional() })
+  .strict();
+const syncStackArgs = z
+  .object({
+    clientName: z.string().trim().min(1).max(100),
+    projectName: z.string().trim().min(1).max(100),
+    details: z.string().max(50000).optional(),
+    liveUrl: optionalHttpUrl.optional(),
+    repoUrl: optionalHttpUrl.optional(),
+    status: z.enum(["active", "paused", "archived"]).optional(),
+    services: z
+      .array(
+        z
+          .object({
+            name: z.string().trim().min(1).max(100),
+            ownerEmail: optionalOwnerEmail.optional(),
+            dashboardUrl: optionalHttpUrl.optional(),
+            tier: z.enum(["", "free", "paid", "trial"]).optional(),
+            renewalDate: optionalDateYmd.optional(),
+            description: z.string().max(50000).optional(),
+          })
+          .strict()
+      )
+      .max(40),
+  })
+  .strict();
 const getProjectArgs = z.object({ projectId: z.string().min(1).max(64) }).strict();
 const createClientArgs = z
   .object({
@@ -199,6 +306,9 @@ const createProjectArgs = z
     clientId: z.string().min(1).max(64),
     name: z.string().trim().min(1).max(100),
     details: z.string().max(50000).optional().default(""),
+    liveUrl: optionalHttpUrl.optional().default(""),
+    repoUrl: optionalHttpUrl.optional().default(""),
+    status: z.enum(["active", "paused", "archived"]).optional().default("active"),
   })
   .strict();
 const updateProjectArgs = z
@@ -206,6 +316,9 @@ const updateProjectArgs = z
     projectId: z.string().min(1).max(64),
     name: z.string().trim().min(1).max(100).optional(),
     details: z.string().max(50000).optional(),
+    liveUrl: optionalHttpUrl.optional(),
+    repoUrl: optionalHttpUrl.optional(),
+    status: z.enum(["active", "paused", "archived"]).optional(),
   })
   .strict();
 const deleteProjectArgs = z.object({ projectId: z.string().min(1).max(64) }).strict();
@@ -215,6 +328,10 @@ const createServiceArgs = z
     projectId: z.string().min(1).max(64),
     name: z.string().trim().min(1).max(100),
     description: z.string().max(50000).optional().default(""),
+    ownerEmail: optionalOwnerEmail.optional().default(""),
+    dashboardUrl: optionalHttpUrl.optional().default(""),
+    tier: z.enum(["", "free", "paid", "trial"]).optional().default(""),
+    renewalDate: optionalDateYmd.optional().default(""),
   })
   .strict();
 const updateServiceArgs = z
@@ -222,6 +339,10 @@ const updateServiceArgs = z
     serviceId: z.string().min(1).max(64),
     name: z.string().trim().min(1).max(100).optional(),
     description: z.string().max(50000).optional(),
+    ownerEmail: optionalOwnerEmail.optional(),
+    dashboardUrl: optionalHttpUrl.optional(),
+    tier: z.enum(["", "free", "paid", "trial"]).optional(),
+    renewalDate: optionalDateYmd.optional(),
   })
   .strict();
 const deleteServiceArgs = z.object({ serviceId: z.string().min(1).max(64) }).strict();
@@ -308,6 +429,9 @@ async function callMcpTool(
         clientName: string;
         name: string;
         details: string;
+        liveUrl: string;
+        repoUrl: string;
+        status: string;
       }> = [];
       const matchingServices: Array<{
         id: string;
@@ -316,24 +440,39 @@ async function callMcpTool(
         clientId: string;
         clientName: string;
         name: string;
+        ownerEmail: string;
+        dashboardUrl: string;
+        tier: string;
+        renewalDate: string;
         description: string;
       }> = [];
 
       for (const c of tree) {
         for (const p of c.projects) {
-          if (p.name.toLowerCase().includes(q) || p.details.toLowerCase().includes(q)) {
+          if (
+            p.name.toLowerCase().includes(q) ||
+            p.details.toLowerCase().includes(q) ||
+            p.liveUrl.toLowerCase().includes(q) ||
+            p.repoUrl.toLowerCase().includes(q)
+          ) {
             matchingProjects.push({
               id: p.id,
               clientId: c.id,
               clientName: c.name,
               name: p.name,
               details: p.details,
+              liveUrl: p.liveUrl,
+              repoUrl: p.repoUrl,
+              status: p.status,
             });
           }
           for (const s of p.services) {
             if (
               s.name.toLowerCase().includes(q) ||
-              s.description.toLowerCase().includes(q)
+              s.description.toLowerCase().includes(q) ||
+              s.ownerEmail.toLowerCase().includes(q) ||
+              s.dashboardUrl.toLowerCase().includes(q) ||
+              s.tier.toLowerCase().includes(q)
             ) {
               matchingServices.push({
                 id: s.id,
@@ -342,6 +481,10 @@ async function callMcpTool(
                 clientId: c.id,
                 clientName: c.name,
                 name: s.name,
+                ownerEmail: s.ownerEmail,
+                dashboardUrl: s.dashboardUrl,
+                tier: s.tier,
+                renewalDate: s.renewalDate,
                 description: s.description,
               });
             }
@@ -354,6 +497,163 @@ async function callMcpTool(
         clients: matchingClients,
         projects: matchingProjects,
         services: matchingServices,
+      };
+    }
+
+    case "list_by_account": {
+      const { email } = listByAccountArgs.parse(args);
+      const tree = await loadUserTree(db, userId);
+      const groups = new Map<
+        string,
+        Array<{
+          serviceId: string;
+          serviceName: string;
+          tier: string;
+          dashboardUrl: string;
+          renewalDate: string;
+          projectId: string;
+          projectName: string;
+          clientId: string;
+          clientName: string;
+        }>
+      >();
+
+      for (const c of tree) {
+        for (const p of c.projects) {
+          for (const s of p.services) {
+            const resolvedEmail = (
+              s.ownerEmail ||
+              s.description.match(EMAIL_EXTRACT_RE)?.[0] ||
+              ""
+            )
+              .trim()
+              .toLowerCase();
+            if (!resolvedEmail) continue;
+            if (email && !resolvedEmail.includes(email)) continue;
+
+            const list = groups.get(resolvedEmail) || [];
+            list.push({
+              serviceId: s.id,
+              serviceName: s.name,
+              tier: s.tier,
+              dashboardUrl: s.dashboardUrl,
+              renewalDate: s.renewalDate,
+              projectId: p.id,
+              projectName: p.name,
+              clientId: c.id,
+              clientName: c.name,
+            });
+            groups.set(resolvedEmail, list);
+          }
+        }
+      }
+
+      return {
+        accounts: Array.from(groups.entries())
+          .sort((a, b) => b[1].length - a[1].length)
+          .map(([accountEmail, services]) => ({
+            email: accountEmail,
+            serviceCount: services.length,
+            services,
+          })),
+      };
+    }
+
+    case "sync_project_stack": {
+      const data = syncStackArgs.parse(args);
+      const tree = await loadUserTree(db, userId);
+
+      let client = tree.find(
+        (c) => c.name.trim().toLowerCase() === data.clientName.toLowerCase()
+      );
+      let clientId = client?.id;
+
+      if (!clientId) {
+        clientId = crypto.randomUUID();
+        await db.insert(schema.clients).values({
+          id: clientId,
+          userId,
+          name: data.clientName,
+          notes: "",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+
+      let project = client?.projects.find(
+        (p) => p.name.trim().toLowerCase() === data.projectName.toLowerCase()
+      );
+      let projectId = project?.id;
+
+      if (!projectId) {
+        projectId = crypto.randomUUID();
+        await db.insert(schema.projects).values({
+          id: projectId,
+          clientId,
+          name: data.projectName,
+          details: data.details ?? "",
+          liveUrl: data.liveUrl ?? "",
+          repoUrl: data.repoUrl ?? "",
+          status: data.status ?? "active",
+          createdAt: now,
+          updatedAt: now,
+        });
+      } else {
+        const patch: Partial<schema.NewProject> = { updatedAt: now };
+        if (data.details !== undefined) patch.details = data.details;
+        if (data.liveUrl !== undefined) patch.liveUrl = data.liveUrl;
+        if (data.repoUrl !== undefined) patch.repoUrl = data.repoUrl;
+        if (data.status !== undefined) patch.status = data.status;
+        await db
+          .update(schema.projects)
+          .set(patch)
+          .where(eq(schema.projects.id, projectId));
+      }
+
+      const existingServices = project?.services ?? [];
+      let createdServices = 0;
+      let updatedServices = 0;
+
+      for (const svc of data.services) {
+        const match = existingServices.find(
+          (s) => s.name.trim().toLowerCase() === svc.name.toLowerCase()
+        );
+        if (match) {
+          const patch: Partial<schema.NewService> = { updatedAt: now };
+          if (svc.ownerEmail !== undefined) patch.ownerEmail = svc.ownerEmail;
+          if (svc.dashboardUrl !== undefined) patch.dashboardUrl = svc.dashboardUrl;
+          if (svc.tier !== undefined) patch.tier = svc.tier;
+          if (svc.renewalDate !== undefined) patch.renewalDate = svc.renewalDate;
+          if (svc.description !== undefined) patch.description = svc.description;
+          await db
+            .update(schema.services)
+            .set(patch)
+            .where(eq(schema.services.id, match.id));
+          updatedServices++;
+        } else {
+          await db.insert(schema.services).values({
+            id: crypto.randomUUID(),
+            projectId,
+            name: svc.name,
+            description: svc.description ?? "",
+            ownerEmail: svc.ownerEmail ?? "",
+            dashboardUrl: svc.dashboardUrl ?? "",
+            tier: svc.tier ?? "",
+            renewalDate: svc.renewalDate ?? "",
+            lastReminderSentAt: null,
+            createdAt: now,
+            updatedAt: now,
+          });
+          createdServices++;
+        }
+      }
+
+      return {
+        ok: true,
+        clientId,
+        projectId,
+        createdServices,
+        updatedServices,
       };
     }
 
@@ -462,6 +762,9 @@ async function callMcpTool(
         clientId: data.clientId,
         name: data.name,
         details: data.details,
+        liveUrl: data.liveUrl,
+        repoUrl: data.repoUrl,
+        status: data.status,
         createdAt: now,
         updatedAt: now,
       };
@@ -470,7 +773,8 @@ async function callMcpTool(
     }
 
     case "update_project": {
-      const { projectId, name: newName, details } = updateProjectArgs.parse(args);
+      const { projectId, name: newName, details, liveUrl, repoUrl, status } =
+        updateProjectArgs.parse(args);
       const existing = await db
         .select()
         .from(schema.projects)
@@ -490,6 +794,9 @@ async function callMcpTool(
       const patch: Partial<schema.NewProject> = { updatedAt: now };
       if (newName !== undefined) patch.name = newName;
       if (details !== undefined) patch.details = details;
+      if (liveUrl !== undefined) patch.liveUrl = liveUrl;
+      if (repoUrl !== undefined) patch.repoUrl = repoUrl;
+      if (status !== undefined) patch.status = status;
 
       await db.update(schema.projects).set(patch).where(eq(schema.projects.id, projectId));
       const updated = await db
@@ -546,6 +853,11 @@ async function callMcpTool(
         projectId: data.projectId,
         name: data.name,
         description: data.description,
+        ownerEmail: data.ownerEmail,
+        dashboardUrl: data.dashboardUrl,
+        tier: data.tier,
+        renewalDate: data.renewalDate,
+        lastReminderSentAt: null,
         createdAt: now,
         updatedAt: now,
       };
@@ -554,7 +866,15 @@ async function callMcpTool(
     }
 
     case "update_service": {
-      const { serviceId, name: newName, description } = updateServiceArgs.parse(args);
+      const {
+        serviceId,
+        name: newName,
+        description,
+        ownerEmail,
+        dashboardUrl,
+        tier,
+        renewalDate,
+      } = updateServiceArgs.parse(args);
       const existing = await db
         .select()
         .from(schema.services)
@@ -581,6 +901,15 @@ async function callMcpTool(
       const patch: Partial<schema.NewService> = { updatedAt: now };
       if (newName !== undefined) patch.name = newName;
       if (description !== undefined) patch.description = description;
+      if (ownerEmail !== undefined) patch.ownerEmail = ownerEmail;
+      if (dashboardUrl !== undefined) patch.dashboardUrl = dashboardUrl;
+      if (tier !== undefined) patch.tier = tier;
+      if (renewalDate !== undefined) {
+        patch.renewalDate = renewalDate;
+        if (renewalDate !== existing.renewalDate) {
+          patch.lastReminderSentAt = null;
+        }
+      }
 
       await db.update(schema.services).set(patch).where(eq(schema.services.id, serviceId));
       const updated = await db
@@ -648,7 +977,6 @@ export async function handleMcpJsonRpc(
   const req = payload as JsonRpcRequest;
   const id = req.id !== undefined ? req.id : null;
 
-  // Notifications have no id and expect no response object
   if (req.method === "notifications/initialized" || req.method === "notifications/cancelled") {
     return null;
   }
@@ -664,7 +992,7 @@ export async function handleMcpJsonRpc(
         },
         serverInfo: {
           name: "devnote-mcp",
-          version: "1.0.0",
+          version: "1.1.0",
         },
       },
     };

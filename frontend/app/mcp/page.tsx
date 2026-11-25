@@ -28,13 +28,25 @@ const MCP_TOOL_DOCS = [
     name: "search_workspace",
     kind: "Read",
     args: "{ query }",
-    desc: "Searches clients, projects, and service descriptions (emails, domains, tiers).",
+    desc: "Searches clients, projects, owner emails, dashboard URLs, tiers, and notes.",
+  },
+  {
+    name: "list_by_account",
+    kind: "Read",
+    args: "{ email? }",
+    desc: "Reverse lookup grouping every service and project by owner email address.",
+  },
+  {
+    name: "sync_project_stack",
+    kind: "Write",
+    args: "{ clientName, projectName, liveUrl?, repoUrl?, services[] }",
+    desc: "Idempotently creates or updates a Client, Project, and full Services list in one call.",
   },
   {
     name: "get_project",
     kind: "Read",
     args: "{ projectId }",
-    desc: "Returns a single project's notes and all attached services.",
+    desc: "Returns a single project's links, notes, and all attached services.",
   },
   {
     name: "create_client",

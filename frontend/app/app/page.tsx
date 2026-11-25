@@ -12,8 +12,12 @@ import {
   useServiceMutations,
 } from "@/lib/queries";
 import { api } from "@/lib/api";
-import { ClientWithProjects, ProjectWithServices, Service } from "@/types";
-import { SidebarTree } from "@/components/sidebar-tree";
+import { ClientWithProjects, ProjectWithServices, Service, ServiceTier } from "@/types";
+import { matchBrandIcon } from "@/lib/brand-icons";
+import { extractKnownEmails, SERVICE_PRESETS } from "@/lib/workspace-helpers";
+import { SidebarTree, WorkspaceViewMode } from "@/components/sidebar-tree";
+import { LaunchpadHome } from "@/components/launchpad-home";
+import { AccountsView, DirectoryTab } from "@/components/accounts-view";
 import { ClientOverview } from "@/components/client-overview";
 import { ProjectView } from "@/components/project-view";
 import { AiAssistant } from "@/components/ai-assistant";
@@ -35,7 +39,14 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-import { Layers, Loader2, Menu, MessageSquare, Plus, Search } from "lucide-react";
+import { Loader2, Menu, MessageSquare, Search, Server } from "lucide-react";
+
+const TIER_CHOICES: Array<{ value: ServiceTier; label: string }> = [
+  { value: "", label: "None" },
+  { value: "free", label: "Free" },
+  { value: "paid", label: "Paid" },
+  { value: "trial", label: "Trial" },
+];
 
 export default function AppPage() {
   return (
@@ -64,7 +75,9 @@ function DashboardWorkstation() {
   const { createProject, updateProject, deleteProject } = useProjectMutations();
   const { createService, updateService, deleteService } = useServiceMutations();
 
-  // Active Selection from URL
+  // URL state
+  const viewParam = searchParams.get("v") || "";
+  const emailParam = searchParams.get("email") || "";
   const selectedClientId = searchParams.get("c") || "";
   const selectedProjectId = searchParams.get("p") || "";
 
@@ -83,10 +96,16 @@ function DashboardWorkstation() {
 
   const [newProjectClientId, setNewProjectClientId] = useState<string | null>(null);
   const [newProjectName, setNewProjectName] = useState("");
+  const [newProjectLiveUrl, setNewProjectLiveUrl] = useState("");
+  const [newProjectRepoUrl, setNewProjectRepoUrl] = useState("");
   const [newProjectDetails, setNewProjectDetails] = useState("");
 
   const [newServiceOpen, setNewServiceOpen] = useState(false);
   const [newServiceName, setNewServiceName] = useState("");
+  const [newServiceOwnerEmail, setNewServiceOwnerEmail] = useState("");
+  const [newServiceDashboardUrl, setNewServiceDashboardUrl] = useState("");
+  const [newServiceTier, setNewServiceTier] = useState<ServiceTier>("");
+  const [newServiceRenewalDate, setNewServiceRenewalDate] = useState("");
   const [newServiceDesc, setNewServiceDesc] = useState("");
 
   // Delete confirmation targets
@@ -96,6 +115,11 @@ function DashboardWorkstation() {
     useState<ProjectWithServices | null>(null);
 
   const importFileRef = useRef<HTMLInputElement | null>(null);
+
+  const knownEmails = useMemo(
+    () => extractKnownEmails(clients, user?.email),
+    [clients, user?.email]
+  );
 
   // Resolve active client & project
   const currentClient = useMemo(
@@ -108,12 +132,32 @@ function DashboardWorkstation() {
     return currentClient.projects.find((p) => p.id === selectedProjectId) || null;
   }, [currentClient, selectedProjectId]);
 
+  const activeView: WorkspaceViewMode = useMemo(() => {
+    if (viewParam === "accounts" || viewParam === "providers" || viewParam === "renewals") {
+      return viewParam;
+    }
+    if (currentClient && currentProject) return "project";
+    if (currentClient) return "client";
+    return "home";
+  }, [viewParam, currentClient, currentProject]);
+
   const targetClientForNewProject = useMemo(
     () => clients.find((c) => c.id === newProjectClientId) || null,
     [clients, newProjectClientId]
   );
 
   // URL navigation helpers
+  const navigateHome = () => {
+    router.replace("/app/");
+  };
+
+  const navigateDirectory = (tab: DirectoryTab, email?: string) => {
+    const params = new URLSearchParams();
+    params.set("v", tab);
+    if (email) params.set("email", email);
+    router.replace(`/app/?${params.toString()}`);
+  };
+
   const updateUrl = (cId: string, pId?: string) => {
     const params = new URLSearchParams();
     if (cId) params.set("c", cId);
@@ -122,13 +166,8 @@ function DashboardWorkstation() {
     router.replace(query ? `/app/?${query}` : "/app/");
   };
 
-  const selectClient = (cId: string) => {
-    updateUrl(cId);
-  };
-
-  const selectProject = (cId: string, pId: string) => {
-    updateUrl(cId, pId);
-  };
+  const selectClient = (cId: string) => updateUrl(cId);
+  const selectProject = (cId: string, pId: string) => updateUrl(cId, pId);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -137,6 +176,7 @@ function DashboardWorkstation() {
       if (
         target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
+        target.tagName === "SELECT" ||
         target.isContentEditable
       ) {
         return;
@@ -231,16 +271,29 @@ function DashboardWorkstation() {
         clientId: newProjectClientId,
         name: newProjectName.trim(),
         details: newProjectDetails.trim(),
+        liveUrl: newProjectLiveUrl.trim(),
+        repoUrl: newProjectRepoUrl.trim(),
       });
       const targetClientId = newProjectClientId;
       setNewProjectClientId(null);
       setNewProjectName("");
+      setNewProjectLiveUrl("");
+      setNewProjectRepoUrl("");
       setNewProjectDetails("");
       selectProject(targetClientId, created.id);
       toast.success("Project created");
     } catch {
       // handled in mutation onError
     }
+  };
+
+  const resetNewServiceForm = () => {
+    setNewServiceName("");
+    setNewServiceOwnerEmail("");
+    setNewServiceDashboardUrl("");
+    setNewServiceTier("");
+    setNewServiceRenewalDate("");
+    setNewServiceDesc("");
   };
 
   const handleCreateService = async (e: React.FormEvent) => {
@@ -250,11 +303,14 @@ function DashboardWorkstation() {
       await createService.mutateAsync({
         projectId: currentProject.id,
         name: newServiceName.trim(),
+        ownerEmail: newServiceOwnerEmail.trim().toLowerCase(),
+        dashboardUrl: newServiceDashboardUrl.trim(),
+        tier: newServiceTier,
+        renewalDate: newServiceRenewalDate.trim(),
         description: newServiceDesc.trim(),
       });
       setNewServiceOpen(false);
-      setNewServiceName("");
-      setNewServiceDesc("");
+      resetNewServiceForm();
       toast.success("Service added");
     } catch {
       // handled in mutation onError
@@ -266,6 +322,10 @@ function DashboardWorkstation() {
       projectId: service.projectId,
       name: `${service.name} (copy)`,
       description: service.description,
+      ownerEmail: service.ownerEmail,
+      dashboardUrl: service.dashboardUrl,
+      tier: service.tier,
+      renewalDate: service.renewalDate,
     });
     toast.success("Service duplicated");
   };
@@ -282,6 +342,10 @@ function DashboardWorkstation() {
             projectId: deleted.projectId,
             name: deleted.name,
             description: deleted.description,
+            ownerEmail: deleted.ownerEmail,
+            dashboardUrl: deleted.dashboardUrl,
+            tier: deleted.tier,
+            renewalDate: deleted.renewalDate,
           });
           toast.success("Service restored");
         },
@@ -303,13 +367,26 @@ function DashboardWorkstation() {
     return <LoginView onLogin={login} onSignup={signup} />;
   }
 
+  const mobileTitle =
+    activeView === "accounts"
+      ? "Accounts"
+      : activeView === "providers"
+        ? "Providers"
+        : activeView === "renewals"
+          ? "Renewals"
+          : currentProject?.name || currentClient?.name || "Launchpad";
+
   const sidebarElement = (onNavigate?: () => void) => (
     <SidebarTree
       user={user}
       clients={clients}
       isLoading={treeLoading}
+      activeView={activeView}
       selectedClientId={selectedClientId}
       selectedProjectId={selectedProjectId}
+      onSelectHome={navigateHome}
+      onSelectAccounts={() => navigateDirectory("accounts")}
+      onSelectRenewals={() => navigateDirectory("renewals")}
       onSelectClient={selectClient}
       onSelectProject={selectProject}
       onNewClient={() => {
@@ -360,7 +437,7 @@ function DashboardWorkstation() {
         </button>
 
         <span className="text-[14px] font-semibold tracking-tight text-foreground truncate px-2">
-          {currentProject?.name || currentClient?.name || "devnote"}
+          {mobileTitle}
         </span>
 
         <div className="flex items-center">
@@ -418,34 +495,23 @@ function DashboardWorkstation() {
               <Skeleton className="h-36 w-full rounded-xl" />
             </div>
           </div>
-        ) : clients.length === 0 ? (
-          /* First-Run Onboarding Empty State */
-          <div className="flex h-full min-h-[420px] items-center justify-center px-6">
-            <div className="max-w-md text-center space-y-4">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-card text-primary">
-                <Layers className="h-5 w-5" />
-              </div>
-              <div className="space-y-1.5">
-                <h1 className="text-[22px] font-semibold tracking-tight text-foreground">
-                  Welcome to devnote
-                </h1>
-                <p className="text-[14px] text-muted-foreground leading-relaxed">
-                  Organize your work as <span className="text-foreground font-medium">Client → Project → Service</span> so you always know which account owns every tool.
-                </p>
-              </div>
-              <Button
-                onClick={() => setNewClientOpen(true)}
-                className="h-10 px-5 text-[14px] gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Create your first client</span>
-              </Button>
-            </div>
-          </div>
+        ) : activeView === "accounts" ||
+          activeView === "providers" ||
+          activeView === "renewals" ? (
+          <AccountsView
+            key={`${activeView}-${emailParam}`}
+            clients={clients}
+            activeTab={activeView}
+            emailFilter={emailParam}
+            onChangeTab={(tab, email) => navigateDirectory(tab, email)}
+            onSelectProject={selectProject}
+          />
         ) : currentClient && currentProject ? (
           <ProjectView
+            key={currentProject.id}
             client={currentClient}
             project={currentProject}
+            knownEmails={knownEmails}
             onSelectClient={selectClient}
             onUpdateProject={(data) =>
               updateProject.mutateAsync({ id: currentProject.id, data })
@@ -469,30 +535,20 @@ function DashboardWorkstation() {
             onNewProject={() => setNewProjectClientId(currentClient.id)}
           />
         ) : (
-          /* Nothing selected */
-          <div className="flex h-full min-h-[420px] items-center justify-center px-6">
-            <div className="max-w-sm text-center space-y-3">
-              <h2 className="text-[16px] font-semibold text-foreground">
-                Select or create a client
-              </h2>
-              <p className="text-[13px] text-muted-foreground leading-relaxed">
-                Pick a client or project from the sidebar, or create a new client to get started.
-              </p>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setNewClientOpen(true)}
-                className="h-9 px-3.5 text-[13px] gap-1.5"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                <span>New client</span>
-              </Button>
-            </div>
-          </div>
+          <LaunchpadHome
+            clients={clients}
+            onSelectClient={selectClient}
+            onSelectProject={selectProject}
+            onOpenAccounts={(email) => navigateDirectory("accounts", email)}
+            onOpenRenewals={() => navigateDirectory("renewals")}
+            onNewClient={() => setNewClientOpen(true)}
+            onNewProjectForClient={(cId) => setNewProjectClientId(cId)}
+            onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+          />
         )}
       </main>
 
-      {/* AI Assistant Slide-Over Panel / Mobile Drawer */}
+      {/* AI Assistant Floating Widget */}
       <AiAssistant
         open={assistantOpen}
         onOpenChange={setAssistantOpen}
@@ -520,7 +576,7 @@ function DashboardWorkstation() {
             <DialogHeader>
               <DialogTitle>New client</DialogTitle>
               <DialogDescription>
-                Add a client or organization to group their projects and services.
+                Add a client or group (e.g. Personal, Byzo, Acme) to organize projects.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3.5 py-4">
@@ -531,7 +587,7 @@ function DashboardWorkstation() {
                 <Input
                   value={newClientName}
                   onChange={(e) => setNewClientName(e.target.value)}
-                  placeholder="Acme Corp"
+                  placeholder="Personal, Byzo, Acme Corp…"
                   autoFocus
                 />
               </div>
@@ -568,7 +624,7 @@ function DashboardWorkstation() {
         open={!!newProjectClientId}
         onOpenChange={(open) => !open && setNewProjectClientId(null)}
       >
-        <DialogContent className="sm:max-w-[420px]">
+        <DialogContent className="sm:max-w-[460px]">
           <form onSubmit={handleCreateProject}>
             <DialogHeader>
               <DialogTitle>New project</DialogTitle>
@@ -583,14 +639,40 @@ function DashboardWorkstation() {
             <div className="space-y-3.5 py-4">
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-foreground">
-                  Name
+                  Project name
                 </label>
                 <Input
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
-                  placeholder="Customer Portal"
+                  placeholder="uuprint, Customer Portal…"
                   autoFocus
                 />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-medium text-muted-foreground">
+                    Live URL (optional)
+                  </label>
+                  <Input
+                    type="url"
+                    value={newProjectLiveUrl}
+                    onChange={(e) => setNewProjectLiveUrl(e.target.value)}
+                    placeholder="https://uuprint.byzo.cc"
+                    className="font-mono text-[12px]"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-medium text-muted-foreground">
+                    Repository URL (optional)
+                  </label>
+                  <Input
+                    type="url"
+                    value={newProjectRepoUrl}
+                    onChange={(e) => setNewProjectRepoUrl(e.target.value)}
+                    placeholder="https://github.com/..."
+                    className="font-mono text-[12px]"
+                  />
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-foreground">
@@ -599,7 +681,7 @@ function DashboardWorkstation() {
                 <Textarea
                   value={newProjectDetails}
                   onChange={(e) => setNewProjectDetails(e.target.value)}
-                  placeholder="Repository links, environments, or stack notes…"
+                  placeholder="Architecture, environments, or stack notes…"
                   className="h-20 text-[14px]"
                 />
               </div>
@@ -620,21 +702,72 @@ function DashboardWorkstation() {
         </DialogContent>
       </Dialog>
 
-      {/* New Service Dialog */}
-      <Dialog open={newServiceOpen} onOpenChange={setNewServiceOpen}>
-        <DialogContent className="sm:max-w-[440px]">
+      {/* Zero-Friction New Service Dialog with Presets & Email Chips */}
+      <Dialog
+        open={newServiceOpen}
+        onOpenChange={(open) => {
+          setNewServiceOpen(open);
+          if (!open) resetNewServiceForm();
+        }}
+      >
+        <DialogContent className="sm:max-w-[520px] max-h-[90vh] overflow-y-auto">
           <form onSubmit={handleCreateService}>
             <DialogHeader>
               <DialogTitle>Add service</DialogTitle>
               <DialogDescription>
-                Record a tool or account used by{" "}
+                Pick a preset or enter a service for{" "}
                 <span className="font-medium text-foreground">
                   {currentProject?.name}
                 </span>
                 .
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-3.5 py-4">
+
+            <div className="space-y-4 py-4">
+              {/* 1-click Provider Presets */}
+              <div className="space-y-1.5">
+                <label className="text-[12px] font-medium text-muted-foreground">
+                  Quick presets
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {SERVICE_PRESETS.map((preset) => {
+                    const brand = matchBrandIcon(preset.name);
+                    const isSelected =
+                      newServiceName.trim().toLowerCase() ===
+                      preset.name.toLowerCase();
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        onClick={() => {
+                          setNewServiceName(preset.name);
+                          if (preset.dashboardUrl !== "https://") {
+                            setNewServiceDashboardUrl(preset.dashboardUrl);
+                          }
+                          setNewServiceTier(preset.defaultTier);
+                        }}
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] font-medium transition-colors cursor-pointer ${
+                          isSelected
+                            ? "border-primary/50 bg-accent text-primary"
+                            : "border-border bg-secondary/50 text-foreground hover:border-primary/30 hover:bg-secondary"
+                        }`}
+                      >
+                        {brand ? (
+                          <span
+                            className="h-3 w-3 flex items-center justify-center fill-current"
+                            dangerouslySetInnerHTML={{ __html: brand.svg }}
+                            aria-hidden="true"
+                          />
+                        ) : (
+                          <Server className="h-3 w-3 text-muted-foreground" />
+                        )}
+                        <span>{preset.name}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-foreground">
                   Service name
@@ -646,18 +779,101 @@ function DashboardWorkstation() {
                   autoFocus
                 />
               </div>
+
+              {/* Owner Email + Known Email Chips */}
               <div className="space-y-1.5">
                 <label className="text-[13px] font-medium text-foreground">
-                  Description
+                  Owner email
+                </label>
+                <Input
+                  type="email"
+                  value={newServiceOwnerEmail}
+                  onChange={(e) => setNewServiceOwnerEmail(e.target.value)}
+                  placeholder="you@gmail.com"
+                  className="font-mono text-[13px]"
+                />
+                {knownEmails.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {knownEmails.slice(0, 5).map((em) => (
+                      <button
+                        key={em}
+                        type="button"
+                        onClick={() => setNewServiceOwnerEmail(em)}
+                        className={`rounded-md border px-2 py-0.5 font-mono text-[11px] transition-colors cursor-pointer ${
+                          newServiceOwnerEmail.trim().toLowerCase() === em
+                            ? "border-primary/50 bg-accent text-primary"
+                            : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {em}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-foreground">
+                  Dashboard URL
+                </label>
+                <Input
+                  type="url"
+                  value={newServiceDashboardUrl}
+                  onChange={(e) => setNewServiceDashboardUrl(e.target.value)}
+                  placeholder="https://vercel.com/..."
+                  className="font-mono text-[13px]"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-[13px] font-medium text-foreground">
+                    Tier
+                  </label>
+                  <div className="grid grid-cols-4 gap-1 rounded-lg border border-border bg-secondary/50 p-1">
+                    {TIER_CHOICES.map((opt) => (
+                      <button
+                        key={opt.value || "none"}
+                        type="button"
+                        onClick={() => setNewServiceTier(opt.value)}
+                        className={`h-7 rounded-md text-[12px] font-medium transition-colors cursor-pointer ${
+                          newServiceTier === opt.value
+                            ? "bg-card text-foreground shadow-xs"
+                            : "text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[13px] font-medium text-foreground">
+                    Renewal / expiry (optional)
+                  </label>
+                  <Input
+                    type="date"
+                    value={newServiceRenewalDate}
+                    onChange={(e) => setNewServiceRenewalDate(e.target.value)}
+                    className="font-mono text-[13px]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[13px] font-medium text-foreground">
+                  Notes (optional)
                 </label>
                 <Textarea
                   value={newServiceDesc}
                   onChange={(e) => setNewServiceDesc(e.target.value)}
-                  placeholder="Owner email, plan tier, region, or links…"
-                  className="h-24 text-[14px]"
+                  placeholder="Region, project ref, billing cycle, or extra notes…"
+                  className="h-20 text-[13px]"
                 />
               </div>
             </div>
+
             <DialogFooter>
               <Button
                 type="button"
@@ -705,7 +921,7 @@ function DashboardWorkstation() {
                 setDeleteClientTarget(null);
                 await deleteClient.mutateAsync(target.id);
                 if (selectedClientId === target.id) {
-                  updateUrl("");
+                  navigateHome();
                 }
                 toast("Client deleted", { description: target.name });
               }}
@@ -763,6 +979,10 @@ function DashboardWorkstation() {
         open={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
         clients={clients}
+        onSelectHome={navigateHome}
+        onSelectAccounts={(email) => navigateDirectory("accounts", email)}
+        onSelectProviders={() => navigateDirectory("providers")}
+        onSelectRenewals={() => navigateDirectory("renewals")}
         onSelectClient={selectClient}
         onSelectProject={selectProject}
         onNewClient={() => setNewClientOpen(true)}

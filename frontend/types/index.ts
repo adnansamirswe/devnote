@@ -39,11 +39,17 @@ export interface Client {
   updatedAt: number;
 }
 
+export type ProjectStatus = "active" | "paused" | "archived";
+export type ServiceTier = "" | "free" | "paid" | "trial";
+
 export interface Project {
   id: string;
   clientId: string;
   name: string;
   details: string;
+  liveUrl: string;
+  repoUrl: string;
+  status: ProjectStatus;
   createdAt: number;
   updatedAt: number;
 }
@@ -53,6 +59,11 @@ export interface Service {
   projectId: string;
   name: string;
   description: string;
+  ownerEmail: string;
+  dashboardUrl: string;
+  tier: ServiceTier;
+  renewalDate: string;
+  lastReminderSentAt?: number | null;
   createdAt: number;
   updatedAt: number;
 }
@@ -92,6 +103,9 @@ export type AiAction =
       clientName?: string;
       name: string;
       details?: string;
+      liveUrl?: string;
+      repoUrl?: string;
+      status?: ProjectStatus;
     }
   | {
       type: "update_project";
@@ -99,6 +113,9 @@ export type AiAction =
       projectName?: string;
       name?: string;
       details?: string;
+      liveUrl?: string;
+      repoUrl?: string;
+      status?: ProjectStatus;
     }
   | { type: "delete_project"; projectId: string; projectName?: string }
   | {
@@ -107,6 +124,10 @@ export type AiAction =
       projectName?: string;
       name: string;
       description?: string;
+      ownerEmail?: string;
+      dashboardUrl?: string;
+      tier?: ServiceTier;
+      renewalDate?: string;
     }
   | {
       type: "update_service";
@@ -114,6 +135,10 @@ export type AiAction =
       serviceName?: string;
       name?: string;
       description?: string;
+      ownerEmail?: string;
+      dashboardUrl?: string;
+      tier?: ServiceTier;
+      renewalDate?: string;
     }
   | { type: "delete_service"; serviceId: string; serviceName?: string };
 

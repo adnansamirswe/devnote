@@ -112,6 +112,9 @@ export const projects = sqliteTable("projects", {
     .references(() => clients.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   details: text("details").notNull().default(""),
+  liveUrl: text("live_url").notNull().default(""),
+  repoUrl: text("repo_url").notNull().default(""),
+  status: text("status").notNull().default("active"), // "active" | "paused" | "archived"
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });
@@ -123,6 +126,11 @@ export const services = sqliteTable("services", {
     .references(() => projects.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
+  ownerEmail: text("owner_email").notNull().default(""),
+  dashboardUrl: text("dashboard_url").notNull().default(""),
+  tier: text("tier").notNull().default(""), // "" | "free" | "paid" | "trial"
+  renewalDate: text("renewal_date").notNull().default(""), // "" | "YYYY-MM-DD"
+  lastReminderSentAt: integer("last_reminder_sent_at"),
   createdAt: integer("created_at").notNull(),
   updatedAt: integer("updated_at").notNull(),
 });

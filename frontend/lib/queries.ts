@@ -184,8 +184,14 @@ export function useProjectMutations() {
   const queryClient = useQueryClient();
 
   const createProject = useMutation({
-    mutationFn: (data: { clientId: string; name: string; details?: string }) =>
-      api.createProject(data),
+    mutationFn: (data: {
+      clientId: string;
+      name: string;
+      details?: string;
+      liveUrl?: string;
+      repoUrl?: string;
+      status?: "active" | "paused" | "archived";
+    }) => api.createProject(data),
     onMutate: async (newProject) => {
       await queryClient.cancelQueries({ queryKey: TREE_QUERY_KEY });
       const previousTree = queryClient.getQueryData<ClientWithProjects[]>(TREE_QUERY_KEY);
@@ -195,6 +201,9 @@ export function useProjectMutations() {
         clientId: newProject.clientId,
         name: newProject.name,
         details: newProject.details || "",
+        liveUrl: newProject.liveUrl || "",
+        repoUrl: newProject.repoUrl || "",
+        status: newProject.status || ("active" as const),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         services: [],
@@ -225,8 +234,19 @@ export function useProjectMutations() {
   });
 
   const updateProject = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; details?: string } }) =>
-      api.updateProject(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: {
+        name?: string;
+        details?: string;
+        liveUrl?: string;
+        repoUrl?: string;
+        status?: "active" | "paused" | "archived";
+      };
+    }) => api.updateProject(id, data),
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: TREE_QUERY_KEY });
       const previousTree = queryClient.getQueryData<ClientWithProjects[]>(TREE_QUERY_KEY);
@@ -292,8 +312,15 @@ export function useServiceMutations() {
   const queryClient = useQueryClient();
 
   const createService = useMutation({
-    mutationFn: (data: { projectId: string; name: string; description?: string }) =>
-      api.createService(data),
+    mutationFn: (data: {
+      projectId: string;
+      name: string;
+      description?: string;
+      ownerEmail?: string;
+      dashboardUrl?: string;
+      tier?: "" | "free" | "paid" | "trial";
+      renewalDate?: string;
+    }) => api.createService(data),
     onMutate: async (newService) => {
       await queryClient.cancelQueries({ queryKey: TREE_QUERY_KEY });
       const previousTree = queryClient.getQueryData<ClientWithProjects[]>(TREE_QUERY_KEY);
@@ -303,6 +330,10 @@ export function useServiceMutations() {
         projectId: newService.projectId,
         name: newService.name,
         description: newService.description || "",
+        ownerEmail: newService.ownerEmail || "",
+        dashboardUrl: newService.dashboardUrl || "",
+        tier: newService.tier || "",
+        renewalDate: newService.renewalDate || "",
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
@@ -335,8 +366,20 @@ export function useServiceMutations() {
   });
 
   const updateService = useMutation({
-    mutationFn: ({ id, data }: { id: string; data: { name?: string; description?: string } }) =>
-      api.updateService(id, data),
+    mutationFn: ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: {
+        name?: string;
+        description?: string;
+        ownerEmail?: string;
+        dashboardUrl?: string;
+        tier?: "" | "free" | "paid" | "trial";
+        renewalDate?: string;
+      };
+    }) => api.updateService(id, data),
     onMutate: async ({ id, data }) => {
       await queryClient.cancelQueries({ queryKey: TREE_QUERY_KEY });
       const previousTree = queryClient.getQueryData<ClientWithProjects[]>(TREE_QUERY_KEY);

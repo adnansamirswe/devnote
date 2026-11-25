@@ -215,3 +215,106 @@ export function buildPasswordResetEmail(code: string): {
     text: `Your devnote password reset code is: ${code}\n\nThis code expires in 15 minutes.`,
   };
 }
+
+export interface RenewalAlertItem {
+  clientName: string;
+  projectName: string;
+  serviceName: string;
+  ownerEmail: string;
+  tier: string;
+  renewalDate: string;
+  daysUntil: number;
+  dashboardUrl: string;
+}
+
+export function buildRenewalReminderEmail(items: RenewalAlertItem[]): {
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const count = items.length;
+  const subject =
+    count === 1
+      ? `Renewal reminder: ${items[0].serviceName} (${items[0].projectName})`
+      : `Renewal reminder: ${count} services renewing soon`;
+
+  const rowsHtml = items
+    .map((item) => {
+      const timing =
+        item.daysUntil < 0
+          ? `${Math.abs(item.daysUntil)}d overdue`
+          : item.daysUntil === 0
+            ? "Today"
+            : `In ${item.daysUntil}d`;
+      const safeLink =
+        item.dashboardUrl && /^https?:\/\//i.test(item.dashboardUrl)
+          ? `<div style="margin-top:4px;"><a href="${escapeHtml(item.dashboardUrl)}" style="font-size:12px;color:#4c3d8f;text-decoration:underline;">Open dashboard</a></div>`
+          : "";
+      return `<tr>
+        <td style="padding:12px;border-bottom:1px solid #e5e7eb;vertical-align:top;">
+          <div style="font-size:14px;font-weight:600;color:#111827;">${escapeHtml(item.serviceName)}</div>
+          <div style="font-size:12px;color:#5f6672;margin-top:2px;">${escapeHtml(item.clientName)} / ${escapeHtml(item.projectName)}</div>
+          ${item.ownerEmail ? `<div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#374151;margin-top:4px;">${escapeHtml(item.ownerEmail)}</div>` : ""}
+          ${safeLink}
+        </td>
+        <td style="padding:12px;border-bottom:1px solid #e5e7eb;text-align:right;vertical-align:top;white-space:nowrap;">
+          <div style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;font-weight:600;color:#111827;">${escapeHtml(item.renewalDate)}</div>
+          <div style="font-size:12px;color:${item.daysUntil <= 2 ? "#b91c1c" : "#b45309"};margin-top:2px;">${escapeHtml(timing)}</div>
+        </td>
+      </tr>`;
+    })
+    .join("");
+
+  const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapeHtml(subject)}</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f6f7f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#111827;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color:#f6f7f9;padding:32px 16px;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width:560px;background-color:#ffffff;border:1px solid #dfe3ea;border-radius:12px;overflow:hidden;">
+          <tr>
+            <td style="padding:18px 24px;border-bottom:1px solid #dfe3ea;">
+              <span style="font-size:15px;font-weight:700;color:#111827;">devnote</span>
+              <span style="font-size:12px;color:#5f6672;margin-left:8px;">Renewal Alert</span>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <h1 style="margin:0 0 8px 0;font-size:18px;font-weight:700;color:#111827;">Upcoming service renewals</h1>
+              <p style="margin:0 0 18px 0;font-size:14px;line-height:22px;color:#4b5563;">The following services in your devnote workspace have renewal or free-tier expiry dates within the next 7 days:</p>
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:8px;border-collapse:collapse;overflow:hidden;">
+                ${rowsHtml}
+              </table>
+              <div style="margin-top:20px;">
+                <a href="https://devnote.byzo.cc/app/?v=renewals" style="display:inline-block;padding:10px 18px;background-color:#4c3d8f;color:#ffffff;text-decoration:none;font-weight:600;font-size:13px;border-radius:8px;">Review in devnote</a>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 24px;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;background-color:#fafafa;">
+              devnote &middot; Built by Byzo (byzo.cc)
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const textLines = items.map(
+    (item) =>
+      `- ${item.serviceName} (${item.clientName} / ${item.projectName}): ${item.renewalDate}${item.ownerEmail ? ` | ${item.ownerEmail}` : ""}`
+  );
+
+  return {
+    subject,
+    html,
+    text: `Upcoming service renewals in devnote:\n\n${textLines.join("\n")}\n\nOpen https://devnote.byzo.cc/app/?v=renewals`,
+  };
+}

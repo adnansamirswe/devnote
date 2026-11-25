@@ -36,9 +36,11 @@ import { handleMcpJsonRpc } from "./lib/mcp";
 import {
   buildNewDeviceLoginEmail,
   buildPasswordResetEmail,
+  buildRenewalReminderEmail,
   buildSignupVerificationEmail,
   generateSixDigitCode,
   maskEmail,
+  type RenewalAlertItem,
   sendMail,
 } from "./lib/mailer";
 
@@ -257,11 +259,39 @@ const clientUpdateSchema = z
   })
   .strict();
 
+const optionalHttpUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine(
+    (v) => v === "" || /^https?:\/\//i.test(v),
+    "URL must start with http:// or https://"
+  );
+
+const optionalOwnerEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(160)
+  .refine(
+    (v) => v === "" || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
+    "Valid email is required"
+  );
+
+const optionalRenewalDateSchema = z
+  .string()
+  .trim()
+  .max(20)
+  .refine((v) => v === "" || /^\d{4}-\d{2}-\d{2}$/.test(v), "Date must be YYYY-MM-DD");
+
 const projectCreateSchema = z
   .object({
     clientId: z.string().min(1, "Client ID is required").max(64),
     name: z.string().trim().min(1, "Name is required").max(100),
     details: z.string().max(50000).optional().default(""),
+    liveUrl: optionalHttpUrlSchema.optional().default(""),
+    repoUrl: optionalHttpUrlSchema.optional().default(""),
+    status: z.enum(["active", "paused", "archived"]).optional().default("active"),
   })
   .strict();
 
@@ -269,6 +299,9 @@ const projectUpdateSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required").max(100).optional(),
     details: z.string().max(50000).optional(),
+    liveUrl: optionalHttpUrlSchema.optional(),
+    repoUrl: optionalHttpUrlSchema.optional(),
+    status: z.enum(["active", "paused", "archived"]).optional(),
   })
   .strict();
 
@@ -277,6 +310,10 @@ const serviceCreateSchema = z
     projectId: z.string().min(1, "Project ID is required").max(64),
     name: z.string().trim().min(1, "Name is required").max(100),
     description: z.string().max(50000).optional().default(""),
+    ownerEmail: optionalOwnerEmailSchema.optional().default(""),
+    dashboardUrl: optionalHttpUrlSchema.optional().default(""),
+    tier: z.enum(["", "free", "paid", "trial"]).optional().default(""),
+    renewalDate: optionalRenewalDateSchema.optional().default(""),
   })
   .strict();
 
@@ -284,6 +321,10 @@ const serviceUpdateSchema = z
   .object({
     name: z.string().trim().min(1, "Name is required").max(100).optional(),
     description: z.string().max(50000).optional(),
+    ownerEmail: optionalOwnerEmailSchema.optional(),
+    dashboardUrl: optionalHttpUrlSchema.optional(),
+    tier: z.enum(["", "free", "paid", "trial"]).optional(),
+    renewalDate: optionalRenewalDateSchema.optional(),
   })
   .strict();
 
@@ -315,6 +356,9 @@ const importSchema = z
             clientId: z.string().min(1).max(64),
             name: z.string().min(1).max(100),
             details: z.string().max(50000).default(""),
+            liveUrl: optionalHttpUrlSchema.optional().default(""),
+            repoUrl: optionalHttpUrlSchema.optional().default(""),
+            status: z.enum(["active", "paused", "archived"]).optional().default("active"),
             createdAt: z.number(),
             updatedAt: z.number(),
             services: z.array(
@@ -323,6 +367,10 @@ const importSchema = z
                 projectId: z.string().min(1).max(64),
                 name: z.string().min(1).max(100),
                 description: z.string().max(50000).default(""),
+                ownerEmail: optionalOwnerEmailSchema.optional().default(""),
+                dashboardUrl: optionalHttpUrlSchema.optional().default(""),
+                tier: z.enum(["", "free", "paid", "trial"]).optional().default(""),
+                renewalDate: optionalRenewalDateSchema.optional().default(""),
                 createdAt: z.number(),
                 updatedAt: z.number(),
               })
@@ -1343,7 +1391,7 @@ app.delete("/api/clients/:id", async (c) => {
 // Projects CRUD (ownership checked via parent client)
 app.post("/api/projects", zValidator("json", projectCreateSchema), async (c) => {
   const user = c.get("user");
-  const { clientId, name, details } = c.req.valid("json");
+  const { clientId, name, details, liveUrl, repoUrl, status } = c.req.valid("json");
   const db = drizzle(c.env.DB, { schema });
 
   const client = await db
@@ -1361,6 +1409,9 @@ app.post("/api/projects", zValidator("json", projectCreateSchema), async (c) => 
     clientId,
     name,
     details,
+    liveUrl,
+    repoUrl,
+    status,
     createdAt: now,
     updatedAt: now,
   };
@@ -1440,7 +1491,8 @@ app.delete("/api/projects/:id", async (c) => {
 // Services CRUD (ownership checked via parent project -> client)
 app.post("/api/services", zValidator("json", serviceCreateSchema), async (c) => {
   const user = c.get("user");
-  const { projectId, name, description } = c.req.valid("json");
+  const { projectId, name, description, ownerEmail, dashboardUrl, tier, renewalDate } =
+    c.req.valid("json");
   const db = drizzle(c.env.DB, { schema });
 
   const project = await db
@@ -1469,6 +1521,11 @@ app.post("/api/services", zValidator("json", serviceCreateSchema), async (c) => 
     projectId,
     name,
     description,
+    ownerEmail,
+    dashboardUrl,
+    tier,
+    renewalDate,
+    lastReminderSentAt: null,
     createdAt: now,
     updatedAt: now,
   };
@@ -1512,9 +1569,20 @@ app.patch("/api/services/:id", zValidator("json", serviceUpdateSchema), async (c
     return c.json({ error: "Service not found" }, 404);
   }
 
+  const updatePatch: Partial<schema.NewService> = {
+    ...data,
+    updatedAt: Date.now(),
+  };
+  if (
+    data.renewalDate !== undefined &&
+    data.renewalDate !== existing.renewalDate
+  ) {
+    updatePatch.lastReminderSentAt = null;
+  }
+
   await db
     .update(schema.services)
-    .set({ ...data, updatedAt: Date.now() })
+    .set(updatePatch)
     .where(eq(schema.services.id, id));
   const result = await db
     .select()
@@ -1623,6 +1691,9 @@ app.post("/api/import", zValidator("json", importSchema), async (c) => {
         clientId: newClientId,
         name: project.name,
         details: project.details || "",
+        liveUrl: project.liveUrl || "",
+        repoUrl: project.repoUrl || "",
+        status: project.status || "active",
         createdAt: project.createdAt,
         updatedAt: project.updatedAt,
       });
@@ -1633,6 +1704,11 @@ app.post("/api/import", zValidator("json", importSchema), async (c) => {
           projectId: newProjectId,
           name: service.name,
           description: service.description || "",
+          ownerEmail: service.ownerEmail || "",
+          dashboardUrl: service.dashboardUrl || "",
+          tier: service.tier || "",
+          renewalDate: service.renewalDate || "",
+          lastReminderSentAt: null,
           createdAt: service.createdAt,
           updatedAt: service.updatedAt,
         });
@@ -2051,4 +2127,82 @@ app.delete("/api/admin/users/:id", async (c) => {
   return c.json({ ok: true });
 });
 
-export default app;
+// Daily scheduled job: email users when services renew/expire within 7 days
+async function runRenewalReminders(env: Bindings): Promise<void> {
+  const db = drizzle(env.DB, { schema });
+  const now = Date.now();
+  const todayUtc = new Date();
+  todayUtc.setUTCHours(0, 0, 0, 0);
+  const todayMs = todayUtc.getTime();
+  const reminderCooldownMs = 7 * 24 * 60 * 60 * 1000;
+
+  const activeUsers = await db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.status, "active"));
+
+  for (const user of activeUsers) {
+    if (user.emailVerified !== 1) continue;
+    const tree = await getUserTree(db, user.id);
+    const dueItems: Array<{ serviceId: string; item: RenewalAlertItem }> = [];
+
+    for (const client of tree) {
+      for (const project of client.projects) {
+        if (project.status === "archived") continue;
+        for (const service of project.services) {
+          if (!service.renewalDate || !/^\d{4}-\d{2}-\d{2}$/.test(service.renewalDate)) {
+            continue;
+          }
+          const targetMs = Date.parse(`${service.renewalDate}T00:00:00Z`);
+          if (Number.isNaN(targetMs)) continue;
+          const daysUntil = Math.round((targetMs - todayMs) / (24 * 60 * 60 * 1000));
+          // Alert if overdue by up to 3 days or due within next 7 days
+          if (daysUntil > 7 || daysUntil < -3) continue;
+          if (
+            service.lastReminderSentAt &&
+            now - service.lastReminderSentAt < reminderCooldownMs
+          ) {
+            continue;
+          }
+
+          dueItems.push({
+            serviceId: service.id,
+            item: {
+              clientName: client.name,
+              projectName: project.name,
+              serviceName: service.name,
+              ownerEmail: service.ownerEmail,
+              tier: service.tier,
+              renewalDate: service.renewalDate,
+              daysUntil,
+              dashboardUrl: service.dashboardUrl,
+            },
+          });
+        }
+      }
+    }
+
+    if (dueItems.length === 0) continue;
+
+    const mail = buildRenewalReminderEmail(dueItems.map((d) => d.item));
+    const sent = await sendMail(env, { to: user.email, ...mail });
+    if (sent.success) {
+      const ids = dueItems.map((d) => d.serviceId);
+      await db
+        .update(schema.services)
+        .set({ lastReminderSentAt: now })
+        .where(inArray(schema.services.id, ids));
+    }
+  }
+}
+
+export default {
+  fetch: app.fetch,
+  async scheduled(
+    _event: ScheduledEvent,
+    env: Bindings,
+    ctx: ExecutionContext
+  ): Promise<void> {
+    ctx.waitUntil(runRenewalReminders(env));
+  },
+};
